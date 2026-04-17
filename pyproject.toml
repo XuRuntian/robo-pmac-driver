@@ -1,7 +1,10 @@
 [project]
 name = "robo-pmac-driver"
 version = "0.1.0"
-description = "Add your description here"
+description = "PMAC multi-axis control driver"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "paramiko>=4.0.0",
+    "pymodbus==2.5.3",
+]
