@@ -307,7 +307,7 @@ wheels = [
 [[package]]
 name = "robo-pmac-driver"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "paramiko" },
     { name = "pymodbus" },
