@@ -1,8 +1,8 @@
 import time
 import sys
+from pathlib import Path
 
-# 确保能导入当前目录的包
-sys.path.append('.') 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 
 from pmac_sdk.core.config_model import PMACConfig
 from pmac_sdk.controller.robot_api import PMACRobotController
