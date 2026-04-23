@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, List, field
 
 @dataclass
 class PMACConfig:
@@ -11,6 +11,7 @@ class PMACConfig:
     # 物理参数
     encoder_resolution: int = 131072
     gear_ratio: float = 97.34
+    zero_offsets: List[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
     
     @property
     def pulses_per_degree(self) -> float:
