@@ -1,8 +1,9 @@
 import time
 import sys
 import math # 引入数学库计算正弦曲线
-# 确保能导入当前目录的包
-sys.path.append('.') 
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 
 from pmac_sdk.core.config_model import PMACConfig
 from pmac_sdk.controller.robot_api import PMACRobotController

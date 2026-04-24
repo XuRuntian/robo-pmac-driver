@@ -50,5 +50,35 @@ class PMACRobotController:
         # 透传参数到底层
         self.move_joints(targets, move_time=move_time, accel=accel, scurve=scurve)
         
+    def set_current_as_absolute_zero(self):
+        """
+        【标定模式】：将机器人手动摆到标准的“零点姿态”后调用此方法。
+        把当前的物理脉冲记录下来，作为绝对零点偏置。
+        (实际工程中，这个偏置应该被保存到 default_pmac.yaml 里持久化)
+        """
+        current_pos = self.modbus.read_int32_array(address=10, count=5)
+        self.config.zero_offsets = current_pos
+        # 更新当前的相对基准，防止乱跳
+        self.base_positions = current_pos
+        print(f"✅ 已标定绝对零点偏置: {self.config.zero_offsets}")
+
+    def move_to_absolute_angle(self, joint_idx: int, absolute_angle: float, move_time: int = 500, accel: int = 100, scurve: int = 50):
+        """
+        【绝对控制】：基于标定好的物理零点进行精确到角度的控制。
+        无论在哪上电，指令发 0°，机械臂就一定会回到物理固定的那个 0° 姿态。
+        """
+        # 1. 获取当前所有轴的最新绝对脉冲，防止其他轴被误归零
+        current_pos = self.modbus.read_int32_array(address=10, count=5)
+        targets = list(current_pos)
+        
+        # 2. 计算目标脉冲：零点偏置 + 目标角度对应的脉冲
+        target_pulses = int(self.config.zero_offsets[joint_idx] + (absolute_angle * self.config.pulses_per_degree))
+        targets[joint_idx] = target_pulses
+        
+        print(f"🎯 绝对控制 -> 电机 {joint_idx+1} 目标角度 {absolute_angle}°, 对应脉冲 {target_pulses}")
+        
+        # 3. 发送运动指令
+        self.move_joints(targets, move_time=move_time, accel=accel, scurve=scurve)
+        
     def close(self):
         self.modbus.disconnect()
