@@ -9,6 +9,9 @@ description = "PMAC multi-axis control driver"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "forcedimension-core>=1.0.0",
+    "numpy>=2.2.6",
     "paramiko>=4.0.0",
     "pymodbus==2.5.3",
+    "scipy>=1.15.3",
 ]
