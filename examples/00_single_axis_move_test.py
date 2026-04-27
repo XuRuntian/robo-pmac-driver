@@ -13,20 +13,33 @@ def main():
     robot = PMACRobotController(config)
     
     try:
-        # 2. 硬件启动与连接
+        # 2. 硬件启动
         robot.hardware_boot()
         print("正在等待系统启动...")
         time.sleep(2)
         
+        # ==========================================
+        # 增量轴 (电机5) 初始化流程
+        # ==========================================
+        print("\n⚠️ 【系统安全提示】")
+        print("由于电机 5 (直线单元) 是增量编码器，每次上电需要重新标定零点。")
+        confirm_zero = input("👉 请手动将直线滑块推到物理最左侧/最底端死区，推好后按回车键继续...")
+        
+        # 执行就地设零
+        robot.set_linear_axis_zero()
+        
+        # ==========================================
+        # Modbus 连接与锁存当前状态
+        # ==========================================
         robot.connect_and_home()
-        print("✅ 系统已就绪。")
+        print("✅ 系统已完全就绪。")
 
         # ==========================================
         # 运动参数配置
         # ==========================================
         joint_idx = 1         # 要操作的轴 (0-4)
         target_angle = 5.0   # 目标角度 (度)
-        move_time = 200      # 运动耗时 (毫秒)，2000ms = 2秒
+        move_time = 200      # 运动耗时 (毫秒)
         
         print(f"\n🚀 准备移动轴 {joint_idx} 到 {target_angle}°")
         confirm = input("确认执行运动？(按回车键开始 / 输入 n 退出): ")
@@ -35,13 +48,12 @@ def main():
             return
 
         # 3. 执行单轴运动
-        # move_single_joint_angle 是绝对位置运动
         robot.move_single_joint_angle(
             joint_idx=joint_idx, 
             angle=target_angle,
             move_time=move_time,
-            accel=150,        # 加速度
-            scurve=20         # S曲线平滑度 (0-100)，越大越丝滑
+            accel=150,        
+            scurve=20         
         )
         
         # 等待运动完成
@@ -49,7 +61,6 @@ def main():
         time.sleep(move_time / 1000.0 + 0.5)
         
         # 4. 读取当前位置确认
-        # 假设 Modbus 地址 10 开始存放 5 个轴的当前位置
         pos_array = robot.modbus.read_int32_array(address=10, count=5)
         print(f"\n📊 运动完成！当前五轴位置: {pos_array}")
 

@@ -13,6 +13,7 @@ class PMACConfig:
     gear_ratio: float = 97.34
     zero_offsets: List[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
     
+    joint_directions: List[int] = field(default_factory=lambda: [1, 1, 1, 1, 1])
     @property
     def pulses_per_degree(self) -> float:
         return (self.encoder_resolution * self.gear_ratio) / 360.0
