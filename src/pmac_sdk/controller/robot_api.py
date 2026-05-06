@@ -92,5 +92,32 @@ class PMACRobotController:
         
         self.move_joints(targets, move_time=move_time, accel=accel, scurve=scurve)
         
+    def move_pvt_stream(self, target_pulses: list, velocities: list, move_time: float):
+        """
+        专门适配 PVT 环形缓冲区的流式下发接口
+        :param target_pulses: 5个轴的目标绝对脉冲列表
+        :param velocities: 5个轴的目标瞬时速度 (脉冲/ms)
+        :param move_time: 本段轨迹执行的时间 (ms)
+        """
+        scale = 10000.0 # 必须与 PMAC global definitions.pmh 一致[cite: 6]
+        
+        # 1. 缩放并转换数据为 32位整数
+        scaled_pos = [int(p * scale) for p in target_pulses]
+        scaled_vel = [int(v * scale) for v in velocities]
+        scaled_time = int(move_time * scale)
+        
+        # 2. 写入位置 (地址 0, 4, 8, 12, 16)[cite: 4]
+        self.modbus.write_int32_array(address=0, values=scaled_pos)
+        
+        # 3. 写入时间 (地址 40)[cite: 4]
+        self.modbus.write_int32_array(address=40, values=[scaled_time])
+        
+        # 4. 写入速度 (地址 50, 54, 58, 62, 66)[cite: 4]
+        self.modbus.write_int32_array(address=50, values=scaled_vel)
+        
+        # 5. 发送触发信号 (地址 200)[cite: 4]
+        # 注意：PMAC PLC 2 处理完后会自动将其置零[cite: 4]
+        self.modbus.write_int32_array(address=200, values=[1])
+    
     def close(self):
         self.modbus.disconnect()
