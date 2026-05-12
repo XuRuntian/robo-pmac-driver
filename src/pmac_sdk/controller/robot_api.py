@@ -99,12 +99,12 @@ class PMACRobotController:
         :param velocities: 5个轴的目标瞬时速度 (脉冲/ms)
         :param move_time: 本段轨迹执行的时间 (ms)
         """
-        scale = 10000.0 # 必须与 PMAC global definitions.pmh 一致[cite: 6]
-        
+        pos_scale = 1.0 # 必须与 PMAC global definitions.pmh 一致[cite: 6]
+        vel_time_scale = 10000.0
         # 1. 缩放并转换数据为 32位整数
-        scaled_pos = [int(p * scale) for p in target_pulses]
-        scaled_vel = [int(v * scale) for v in velocities]
-        scaled_time = int(move_time * scale)
+        scaled_pos = [int(p * pos_scale) for p in target_pulses]
+        scaled_vel = [int(v * vel_time_scale) for v in velocities]
+        scaled_time = int(move_time * vel_time_scale)
         
         # 2. 写入位置 (地址 0, 4, 8, 12, 16)[cite: 4]
         self.modbus.write_int32_array(address=0, values=scaled_pos)

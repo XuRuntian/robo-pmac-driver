@@ -1,173 +1,138 @@
 import time
 import sys
 from pathlib import Path
+from pynput import keyboard
 
 # 保证能找到 src 目录
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 
 from pmac_sdk.core.config_model import PMACConfig
 from pmac_sdk.controller.robot_api import PMACRobotController
-from pynput import keyboard
 
 # ==========================================
-# 第一层：输入解耦 (Input Layer)
+# 第一层：输入捕获 (Input Layer)
 # ==========================================
 class KeyboardDevice:
-    """
-    键盘输入监听类 (替代 OmegaDevice)
-    非阻塞地捕获按键状态，解耦具体硬件。
-    """
     def __init__(self):
         self.pressed_keys = set()
-        self.listener = keyboard.Listener(
-            on_press=self._on_press,
-            on_release=self._on_release
-        )
+        self.listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
 
     def _on_press(self, key):
         try:
             self.pressed_keys.add(key.char.lower())
-        except AttributeError:
-            pass # 忽略非字母按键
+        except AttributeError: pass
 
     def _on_release(self, key):
         try:
             self.pressed_keys.discard(key.char.lower())
-        except AttributeError:
-            pass
+        except AttributeError: pass
 
-    def start(self):
-        self.listener.start()
-        print("⌨️  键盘监听已启动...")
-
-    def stop(self):
-        self.listener.stop()
-
-    def get_state(self) -> set:
-        """返回当前被按下的所有键"""
-        return self.pressed_keys
+    def start(self): self.listener.start()
+    def stop(self): self.listener.stop()
+    def get_state(self) -> set: return self.pressed_keys
 
 # ==========================================
-# 第二层：算法与映射解耦 (Algorithm Layer)
+# 第二层：轨迹规划 (PVT Planner)
 # ==========================================
-class SimpleJointMapper:
-    def __init__(self, step_size_deg=3.0): 
-        # 每次循环的角度步进量（在 16Hz 下，1度代表期望速度 16度/秒）
-        self.step_size = step_size_deg 
-        # 维护一个纯软状态 (我们的“胡萝卜”)
-        self.target_angles = None 
-        # 牵引绳的最大长度（度）。这个值决定了“手感”：
-        # 太大 -> 松手后会有惯性（继续转一会）
-        # 太小 -> 电机跑不快（蠕动）
-        self.max_lead_deg = 15.0 
+class KeyboardPVTPlanner:
+    def __init__(self, update_hz=50, speed_deg_s=20.0):
+        self.dt = 1.0 / update_hz
+        self.speed_deg_s = speed_deg_s # 移动速度：度/秒
+        self.target_angles = None
+        
+        # 定义按键映射：轴索引, 方向
+        self.key_map = {
+            'w': (0, 1), 's': (0, -1),   # 1轴
+            'a': (1, 1), 'd': (1, -1),   # 2轴
+            'q': (2, 1), 'e': (2, -1),   # 3轴
+            'r': (3, 1), 'f': (3, -1),   # 4轴
+            't': (4, 1), 'g': (4, -1),   # 5轴
+        }
 
-    def solve(self, active_keys: set, current_angles: list[float]) -> list[float]:
-        # 第一次运行，将胡萝卜对齐到电机的真实位置
+    def compute_next_step(self, active_keys, current_angles):
         if self.target_angles is None:
-            self.target_angles = current_angles.copy()
+            self.target_angles = list(current_angles)
 
-        # 根据按键移动“胡萝卜”
-        if 'a' in active_keys: self.target_angles[0] -= self.step_size
-        if 'd' in active_keys: self.target_angles[0] += self.step_size
-        if 'w' in active_keys: self.target_angles[1] += self.step_size
-        if 's' in active_keys: self.target_angles[1] -= self.step_size
-        if 'q' in active_keys: self.target_angles[2] += self.step_size
-        if 'e' in active_keys: self.target_angles[2] -= self.step_size
-        if 'r' in active_keys: self.target_angles[3] += self.step_size
-        if 'f' in active_keys: self.target_angles[3] -= self.step_size
+        next_velocities_deg_s = [0.0] * 5
+        
+        # 计算每一轴的期望移动
+        for key, (axis_idx, direction) in self.key_map.items():
+            if key in active_keys:
+                # 瞬时速度 = 设定速度 * 方向
+                next_velocities_deg_s[axis_idx] = direction * self.speed_deg_s
+                # 位置增量 = 速度 * 时间
+                self.target_angles[axis_idx] += next_velocities_deg_s[axis_idx] * self.dt
 
-        # 【核心逻辑：弹性牵引绳】
-        # 限制“胡萝卜”不能离“电机真实位置”太远，防止指令积压
-        for i in range(5):
-            max_allowed = current_angles[i] + self.max_lead_deg
-            min_allowed = current_angles[i] - self.max_lead_deg
-            
-            if self.target_angles[i] > max_allowed:
-                self.target_angles[i] = max_allowed
-            elif self.target_angles[i] < min_allowed:
-                self.target_angles[i] = min_allowed
-
-        return self.target_angles
+        return self.target_angles, next_velocities_deg_s
 
 # ==========================================
-# 第三层：调度与执行 (Application Loop)
+# 第三层：主控制循环
 # ==========================================
 def main():
-    print("🚀 启动 PVT 模式键盘遥操作测试...")
+    print("🎮 启动 PVT 键盘遥操作 (高平滑模式)...")
+    
+    update_hz = 50
+    update_interval = 1.0 / update_hz
+    move_time_ms = update_interval * 1000  # 严格 20ms
     
     kbd = KeyboardDevice()
-    mapper = SimpleJointMapper(step_size_deg=5) # 步进
+    planner = KeyboardPVTPlanner(update_hz=update_hz, speed_deg_s=25.0) # 速度设为 25度/秒
     
     pmac_config = PMACConfig(ip='192.168.0.200')
     robot = PMACRobotController(pmac_config)
     
     try:
-        # 1. 硬件初始化
         robot.hardware_boot()
         time.sleep(2)
         robot.connect_and_home()
-        
-        # 获取初始基准脉冲
         base_pulses = robot.base_positions.copy()
-        # 【关键】：初始化“上一次目标”，用于速度计算
-        last_target_pulses = base_pulses.copy()
+        
+        # 初始化当前角度状态
+        current_pulses = robot.modbus.read_int32_array(address=10, count=5)
+        curr_angles = [(p - base_pulses[i]) / robot.config.pulses_per_degree for i, p in enumerate(current_pulses)]
         
         kbd.start()
-        print("\n✅ 系统就绪！请确保 PMAC 端已运行 '&1 b1 r'") # 运行 prog 1
-        
-        # 2. 设定控制频率 (建议 20Hz - 50Hz)
-        update_interval = 0.02  # 50Hz
-        move_time_ms = update_interval * 1000
-        
+        print("\n✅ 控制就绪！WASD/QE/RF/TG 控制轴。按 Ctrl+C 退出。")
+
+        next_call = time.perf_counter()
+
         while True:
             loop_start = time.perf_counter()
             
-            # 读取当前物理角度 (用于 Mapper 算法)
-            current_pulses = robot.modbus.read_int32_array(address=10, count=5)
-            current_angles_deg = [(p - base_pulses[i]) / robot.config.pulses_per_degree for i, p in enumerate(current_pulses)]
+            # 1. 获取输入并计算下一步 PVT
+            active_keys = kbd.get_state()
+            target_angles, v_degs = planner.compute_next_step(active_keys, curr_angles)
             
-            # 计算新的目标角度
-            keys = kbd.get_state()
-            target_angles_deg = mapper.solve(keys, current_angles_deg)
-            
-            # 转换为目标脉冲
+            # 2. 转换为脉冲和速度单位
             target_pulses = []
-            for idx, angle_deg in enumerate(target_angles_deg):
-                p = int(base_pulses[idx] + (angle_deg * robot.config.pulses_per_degree))
+            velocities_p_ms = []
+            for i in range(5):
+                p = int(base_pulses[i] + (target_angles[i] * robot.config.pulses_per_degree))
+                v = (v_degs[i] * robot.config.pulses_per_degree) / 1000.0
                 target_pulses.append(p)
+                velocities_p_ms.append(v)
             
-            # --- 【核心新增】：计算瞬时速度 (脉冲/ms) ---
-            # V = (P_new - P_old) / T
-            velocities = []
-            for curr, last in zip(target_pulses, last_target_pulses):
-                vel = (curr - last) / move_time_ms
-                velocities.append(vel)
-            
-            # 更新历史记录
-            last_target_pulses = target_pulses.copy()
-            
-            # --- 【核心调用】：PVT 流式下发 ---
-            # 内部会自动缩放 10000 倍并写入地址 0, 40, 50, 200[cite: 4, 6]
+            # 3. PVT 下发
             robot.move_pvt_stream(
                 target_pulses=target_pulses,
-                velocities=velocities,
+                velocities=velocities_p_ms,
                 move_time=move_time_ms
             )
             
-            # 维持频率
-            loop_cost = time.perf_counter() - loop_start
-            sleep_time = update_interval - loop_cost
+            # 4. 严格频率对齐
+            next_call += update_interval
+            sleep_time = next_call - time.perf_counter()
             if sleep_time > 0:
                 time.sleep(sleep_time)
+            else:
+                # 容错：如果 Python 调度慢了，追齐时钟防止误差累积
+                next_call = time.perf_counter()
 
     except KeyboardInterrupt:
-        print("\n⏹️ 接收到退出信号。")
-    except Exception as e:
-        print(f"\n❌ 运行时异常: {e}")
+        print("\n⏹️ 停止操作。")
     finally:
         kbd.stop()
         robot.close()
-        print("🔌 系统已安全关闭。")
 
 if __name__ == "__main__":
     main()
