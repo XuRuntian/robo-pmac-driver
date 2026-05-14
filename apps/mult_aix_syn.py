@@ -17,7 +17,7 @@ def main():
     
     # 测试参数
     # 1-4 轴分别运动不同的幅度，但周期完全一致
-    amplitudes = [10.0, 20.0, -15.0, 30.0, 0.0]  # 5轴不动
+    amplitudes = [10.0, 20.0, -15.0, 30.0, 10.0]  # 5轴不动
     freq = 0.2  # 0.2Hz (5秒一个来回)
     
     update_hz = 50
@@ -25,9 +25,11 @@ def main():
     move_time_ms = update_interval * 1000 # 严格 20ms
     
     try:
-        robot.hardware_boot()
+        # robot.hardware_boot()
+        # time.sleep(1)
+        robot.axi_syn_boot()
         time.sleep(2)
-        robot.connect_and_home()
+        robot.connect_and_home()    
         base_pulses = robot.base_positions.copy()
         
         print("\n🚀 开始同步运动！")

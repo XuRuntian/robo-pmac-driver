@@ -14,21 +14,8 @@ class PMACRobotController:
     def hardware_boot(self):
         """执行硬件级别的上电和复位"""
         self.hw_manager.init_motors()
-
-    # --- 新增接口：专门用于直线单元(增量轴)设零 ---
-    def set_linear_axis_zero(self):
-        """
-        【手动软回零】：要求在调用前，直线单元已被推到物理极限位。
-        通过 SSH 直接下发 PMAC #5hmz 指令就地设零。
-        """
-        print("🏠 正在将直线单元(电机 5)当前物理位置设为绝对零点...")
-        self.hw_manager.send_gpascii_commands([
-            ("🛑 停用 PLC 2 以防干扰...", "disable plc 2"),
-            ("📍 电机 5 就地设零...", "#5hmz"),
-            ("🔄 重新启用 PLC 2...", "enable plc 2")
-        ], delay=0.5)
-        print("✅ 直线单元设零完成！")
-
+    def axi_syn_boot(self):
+        self.hw_manager.init_mult_aix()
     def connect_and_home(self):
         if not self.modbus.connect():
             raise ConnectionError("❌ 无法连接到 PMAC，请检查网络设置。")
@@ -121,3 +108,28 @@ class PMACRobotController:
     
     def close(self):
         self.modbus.disconnect()
+        
+class VisualHomingManager:
+    """视觉引导回零托管类"""
+    def __init__(self, modbus_client):
+        self.modbus = modbus_client
+        self.CMD_ADDRESS = 220
+
+    def start_homing(self):
+        """下发指令 1：启动回零 (PLC将执行 #5j-)"""
+        self.modbus.write_int32_array(address=self.CMD_ADDRESS, values=[1])
+
+    def stop_movement(self):
+        """下发指令 2：强制停止 (PLC将执行 #5k)"""
+        self.modbus.write_int32_array(address=self.CMD_ADDRESS, values=[2])
+
+    def confirm_and_set_zero(self):
+        """下发指令 3：确认停稳并设零 (PLC将执行 #5hmz)"""
+        self.modbus.write_int32_array(address=self.CMD_ADDRESS, values=[3])
+
+    def read_status(self):
+        """读取底层状态 (状态, 停止原因, 电流, 跟随误差)"""
+        # PLC 中我们存放在 444, 446, 448, 450
+        state_reason = self.modbus.read_int32_array(address=444, count=2)
+        iq_fe = self.modbus.read_int32_array(address=448, count=2)
+        return state_reason[0], state_reason[1], iq_fe[0], iq_fe[1]
