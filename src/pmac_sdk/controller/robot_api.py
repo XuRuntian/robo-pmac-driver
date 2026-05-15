@@ -14,8 +14,7 @@ class PMACRobotController:
     def hardware_boot(self):
         """执行硬件级别的上电和复位"""
         self.hw_manager.init_motors()
-    def axi_syn_boot(self):
-        self.hw_manager.init_mult_aix()
+
     def connect_and_home(self):
         if not self.modbus.connect():
             raise ConnectionError("❌ 无法连接到 PMAC，请检查网络设置。")
@@ -34,7 +33,35 @@ class PMACRobotController:
         self.modbus.write_int32_array(address=0, values=self.base_positions)
         
         print(f"✅ 系统就绪，基准位置已锁定: {self.base_positions}")
-
+        
+    def safe_boot_and_home(self):
+        """
+        安全的整合启动序列：
+        1. SSH 电机上电
+        2. Modbus 连接获取真实位置
+        3. 清洗 PVT 缓冲区（防止暴走）
+        4. 启动 PMAC 运动程序
+        """
+        import time
+        
+        # 1. 硬件准备
+        self.hw_manager.prepare_motors()
+        time.sleep(1.0)
+        
+        # 2. 连接 Modbus，并读取电机的真实物理位置
+        # 注意：这里调用的是下面那个底层的 connect_and_home 函数
+        self.connect_and_home() 
+        current_positions = self.base_positions.copy()
+        
+        # 3. 清洗 Modbus 缓冲区
+        print("🧽 [阶段2] 正在清洗 PVT 数据缓冲区...")
+        self.modbus.write_int32_array(address=0, values=current_positions)
+        self.modbus.write_int32_array(address=50, values=[0, 0, 0, 0, 0])
+        self.modbus.write_int32_array(address=200, values=[0])
+        print(f"✅ 缓冲区已同步至安全位置: {current_positions}")
+        
+        # 4. 启动 PMAC 内的运动程序
+        self.hw_manager.start_prog()
     def move_joints(self, target_pulses: list, move_time: int = 500, accel: int = 100, scurve: int = 50):
         """核心底层：只下发原版的地址 0 和 地址 100，并新增动态时间参数"""
         self.modbus.write_int32_array(address=0, values=target_pulses)

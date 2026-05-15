@@ -52,14 +52,12 @@ def main():
     move_time_ms = update_interval * 1000.0
 
     sin_freq_hz = 0.05
-    amp_m = 0.1  # 修正幅值为合理的米级物理单位
+    amp_m = 0.01  # 修正幅值为合理的米级物理单位
 
     prev_axis_targets = None
 
     try:
-        robot.axi_syn_boot()
-        time.sleep(2.0)
-        robot.connect_and_home()
+        robot.safe_boot_and_home()
 
         base_pulses = robot.base_positions.copy()
         center_p, _ = ik.fk_tip()
@@ -74,9 +72,9 @@ def main():
             # 修正 1：确保 t=0 时偏移量绝对为 0，防止 PMAC 报错急停
             p_goal = center_p + np.array(
                 [
-                    amp_m * math.sin(2.0 * math.pi * sin_freq_hz * t),
-                    amp_m * (1.0 - math.cos(2.0 * math.pi * sin_freq_hz * t)), # 1 - cos 起点为 0
-                    0.0,
+                    amp_m * math.sin(2.0 * math.pi * sin_freq_hz * t),           # X 轴（左右摆动）
+                    0.0,                                                         # Y 轴（前进方向）锁定基准，不主动推拉
+                    amp_m * (1.0 - math.cos(2.0 * math.pi * sin_freq_hz * t)),   # Z 轴（上下摆动）
                 ],
                 dtype=float,
             )

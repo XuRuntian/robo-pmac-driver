@@ -27,9 +27,7 @@ def main():
     try:
         # robot.hardware_boot()
         # time.sleep(1)
-        robot.axi_syn_boot()
-        time.sleep(2)
-        robot.connect_and_home()    
+        robot.safe_boot_and_home()    
         base_pulses = robot.base_positions.copy()
         
         print("\n🚀 开始同步运动！")
