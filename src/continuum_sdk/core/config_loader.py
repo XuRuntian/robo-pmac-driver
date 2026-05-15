@@ -1,9 +1,7 @@
 from pathlib import Path
-
 import yaml
 
 from .config import (
-    ContinuumAxisConfig,
     ContinuumConfig,
     ContinuumControlConfig,
     ContinuumGeometryConfig,
@@ -23,11 +21,5 @@ def load_continuum_config(path: str | Path = "config/continuum.yaml") -> Continu
             }
         ),
         ik=ContinuumIKConfig(**raw["ik"]),
-        axis=ContinuumAxisConfig(
-            **{
-                **raw["axis"],
-                "soft_limits": [tuple(x) for x in raw["axis"]["soft_limits"]],
-            }
-        ),
         control=ContinuumControlConfig(**raw["control"]),
     )

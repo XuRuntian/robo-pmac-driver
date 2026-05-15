@@ -4,53 +4,21 @@ geometry:
   s_c: 0.024
   h_bc: 0.0064
   h_de: 0.009
-
   theta_a_max_rad: 3.141592653589793
   theta_c_max_rad: 1.5707963267948966
-
   d_min_m: 0.0
   d_max_m: 0.255
-
   base_offset_m: [0.0, 0.4402, 0.207]
 
 ik:
   task_mode: position
   lambda_damping: 0.008
   alpha: 1.0
-
   pos_tol_m: 0.0002
   dir_tol: 0.001
   ori_tol_rad: 0.0005
-
   max_inner_steps: 5
 
-axis:
-  # logical axis:
-  # 0: a_x rad
-  # 1: a_y rad
-  # 2: c_x rad
-  # 3: c_y rad
-  # 4: d m
-
-  pulses_per_rad:
-    - 35436.551
-    - 35436.551
-    - 35436.551
-    - 35436.551
-
-  # 第 5 轴：每 1 m 对应多少脉冲
-  pulses_per_meter: 100000.0
-
-  axis_order: [0, 1, 2, 3, 4]
-  axis_signs: [1, 1, 1, 1, 1]
-
-  soft_limits:
-    - [-3.141592653589793, 3.141592653589793]
-    - [-3.141592653589793, 3.141592653589793]
-    - [-1.5707963267948966, 1.5707963267948966]
-    - [-1.5707963267948966, 1.5707963267948966]
-    - [0.0, 0.255]
-
 control:
-  update_hz: 20
+  update_hz: 50
   pvt_velocity_from_diff: true

@@ -34,17 +34,6 @@ class ContinuumIKConfig:
 
 
 @dataclass(frozen=True)
-class ContinuumAxisConfig:
-    pulses_per_rad: list[float]
-    pulses_per_meter: float
-
-    axis_order: list[int]
-    axis_signs: list[int]
-
-    soft_limits: list[tuple[float, float]]
-
-
-@dataclass(frozen=True)
 class ContinuumControlConfig:
     update_hz: int
     pvt_velocity_from_diff: bool
@@ -54,5 +43,4 @@ class ContinuumControlConfig:
 class ContinuumConfig:
     geometry: ContinuumGeometryConfig
     ik: ContinuumIKConfig
-    axis: ContinuumAxisConfig
     control: ContinuumControlConfig

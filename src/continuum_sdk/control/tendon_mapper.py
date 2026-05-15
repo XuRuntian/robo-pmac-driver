@@ -1,11 +1,9 @@
 import numpy as np
 
-
 class ContinuumTendonMapper:
     """
-    IK u = [d, theta_a, phi_a, theta_c, phi_c]
-    输出 PMAC 5 轴逻辑目标：
-    [a_x, a_y, c_x, c_y, d]
+    IK u = [d, theta_a, phi_a, theta_c, phi_c] (单位: m, rad)
+    输出 逻辑轴目标：[a_x, a_y, c_x, c_y, d] (单位: rad, m)
     """
 
     def __init__(self, compensate_world: bool = False, gamma_world: float = 0.0):

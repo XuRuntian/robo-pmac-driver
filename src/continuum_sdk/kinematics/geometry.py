@@ -1,8 +1,4 @@
-import math
 from dataclasses import dataclass
-
-import numpy as np
-
 
 @dataclass(frozen=True)
 class ContinuumGeometry:
@@ -11,8 +7,8 @@ class ContinuumGeometry:
     s_c: float = 0.024
     h_bc: float = 0.0064
     h_de: float = 0.009
-    theta_a_max: float = math.radians(180.0)
-    theta_c_max: float = math.radians(90.0)
+    theta_a_max: float = 3.141592653589793
+    theta_c_max: float = 1.5707963267948966
     d_min: float = 0.0
     d_max: float = 0.255
     use_sheath: bool = False
