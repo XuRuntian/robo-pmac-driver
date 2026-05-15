@@ -51,8 +51,8 @@ def main():
     update_interval = 1.0 / update_hz
     move_time_ms = update_interval * 1000.0
 
-    sin_freq_hz = 0.1
-    amp_m = 1  # 修正幅值为合理的米级物理单位
+    sin_freq_hz = 0.05
+    amp_m = 0.1  # 修正幅值为合理的米级物理单位
 
     prev_axis_targets = None
 
