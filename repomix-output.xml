@@ -1,0 +1,1923 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+apps/
+  mult_aix_syn.py
+  teleop_cartesian.py
+  teleop_joint_mode.py
+  teleop_keyboard.py
+  teleop_pvt_keyboard.py
+  teleop_pvt_sin.py
+  teleop_xyz_direct.py
+config/
+  default_pmac.yaml
+examples/
+  00_single_axis_move_test.py
+  01_single_axis_test.py
+  02_multi_axis_test.py
+  03_manual_homing.py
+src/
+  omega_sdk/
+    __init__.py
+    haptic_device.py
+  pmac_sdk/
+    comms/
+      __init__.py
+      modbus_client.py
+    controller/
+      __init__.py
+      robot_api.py
+    core/
+      __init__.py
+      config_model.py
+    hardware/
+      __init__.py
+      ssh_manager.py
+    __init__.py
+.gitignore
+.python-version
+.repomixignore
+main.py
+pyproject.toml
+README.md
+repomix.config.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="apps/teleop_joint_mode.py">
+
+</file>
+
+<file path="apps/teleop_pvt_sin.py">
+import time
+import sys
+import math
+from pathlib import Path
+
+# 保证能找到 src 目录
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+
+from pmac_sdk.core.config_model import PMACConfig
+from pmac_sdk.controller.robot_api import PMACRobotController
+
+# ==========================================
+# 第二层替换：正弦波生成器 (Generator Layer)
+# ==========================================
+class SineWaveGenerator:
+    """
+    代替键盘映射，生成平滑的正弦波轨迹
+    """
+    def __init__(self, amplitude_deg=10.0, frequency_hz=0.5):
+        self.amplitude = amplitude_deg  # 振幅（度）
+        self.freq = frequency_hz        # 频率（Hz，即一秒钟往返多少次）
+        self.start_time = None
+
+    def get_target(self, elapsed_time) -> tuple[float, float]:
+        """
+        根据当前时间计算目标角度和目标角速度
+        返回: (target_angle_deg, target_velocity_deg_per_s)
+        """
+        # P(t) = A * sin(2 * pi * f * t)
+        angle = self.amplitude * math.sin(2 * math.pi * self.freq * elapsed_time)
+        
+        # V(t) = A * 2 * pi * f * cos(2 * pi * f * t)
+        # 注意：这是 度/秒
+        velocity = self.amplitude * (2 * math.pi * self.freq) * math.cos(2 * math.pi * self.freq * elapsed_time)
+        
+        return angle, velocity
+
+# ==========================================
+# 第三层：测试调度 (Test Loop)
+# ==========================================
+def main():
+    print("🧪 启动 PVT 正弦波金标准测试...")
+    
+    # 设置测试参数：幅值15度，频率0.2Hz（5秒一个来回，非常丝滑）
+    gen = SineWaveGenerator(amplitude_deg=15.0, frequency_hz=0.2)
+    
+    pmac_config = PMACConfig(ip='192.168.0.200')
+    robot = PMACRobotController(pmac_config)
+    
+    try:
+        robot.hardware_boot()
+        time.sleep(2)
+        robot.connect_and_home()
+        
+        base_pulses = robot.base_positions.copy()
+        
+        print("\n✅ 系统就绪！正在进行正弦波平滑运动...")
+        print("💡 提示：如果此运动抖动，请检查 PMAC 缓存大小或网络延迟。")
+
+        update_interval = 0.02  # 50Hz
+        move_time_ms = update_interval * 1000
+        virtual_elapsed_time = 0.0
+        start_real_time = time.perf_counter()
+        next_call = start_real_time
+        while True:
+            loop_start = time.perf_counter()
+            elapsed = loop_start - start_real_time
+            
+            # 1. 计算当前时间点理论上的 P 和 V (度/秒)
+            target_angle, v_deg_s = gen.get_target(elapsed)
+            
+            # 2. 转换为 PMAC 脉冲单位
+            # 我们只测试第 1 关节 (Index 0)，其他关节保持不动
+            target_pulses = []
+            velocities_p_ms = [] # 脉冲 / ms
+            
+            for i in range(5):
+                if i == 0: # 只有一轴动，方便观察
+                    p = int(base_pulses[i] + (target_angle * robot.config.pulses_per_degree))
+                    # 速度换算：(度/s) * (脉冲/度) / 1000 = 脉冲/ms
+                    v = (v_deg_s * robot.config.pulses_per_degree) / 1000.0
+                else:
+                    p = base_pulses[i]
+                    v = 0.0
+                
+                target_pulses.append(p)
+                velocities_p_ms.append(v)
+            
+            # 3. PVT 下发
+            robot.move_pvt_stream(
+                target_pulses=target_pulses,
+                velocities=velocities_p_ms,
+                move_time=move_time_ms
+            )
+            virtual_elapsed_time += update_interval
+            next_call += update_interval
+            # 维持频率控制
+            sleep_time = next_call - time.perf_counter()
+            
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            
+            # 打印调试信息（可选，不要在高频循环里打印太多）
+            if int(elapsed * 50) % 50 == 0:
+                print(f"Time: {elapsed:.2f}s, Pos: {target_angle:.2f}°, Vel: {v_deg_s:.2f}°/s")
+
+    except KeyboardInterrupt:
+        print("\n⏹️ 测试停止。")
+    finally:
+        robot.close()
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="config/default_pmac.yaml">
+
+</file>
+
+<file path="examples/03_manual_homing.py">
+import time
+import sys
+from pathlib import Path
+from pynput import keyboard
+
+# 保证能找到 src 目录
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+
+from pmac_sdk.core.config_model import PMACConfig
+from pmac_sdk.controller.robot_api import PMACRobotController, VisualHomingManager
+
+# 全局标志位，用于捕捉按键动作
+user_triggered_stop = False
+
+def on_press(key):
+    global user_triggered_stop
+    if key == keyboard.Key.space or key == keyboard.Key.enter:
+        user_triggered_stop = True
+
+def main():
+    print("========================================")
+    print("👁️  增量轴 (电机 5) 人工视觉引导回零程序")
+    print("========================================")
+
+    config = PMACConfig(ip='192.168.0.200')
+    robot = PMACRobotController(config)
+    homer = VisualHomingManager(robot.modbus)
+
+    try:
+        # 1. 初始化硬件 (此时会同时使能 PLC 2 和 PLC 3)
+        robot.hardware_boot()
+        time.sleep(2)
+        robot.connect_and_home()
+
+        print("\n⚠️ 准备就绪！")
+        print("操作说明：")
+        print("1. 按下回车键，电机将开始向负方向移动 (#5j-)。")
+        print("2. 观察电机位置。")
+        print("3. 当到达你期望的零点时，按下【空格键】或【回车键】，电机将立即停止并设为绝对零点。")
+        input("\n👉 确认安全后，按回车键开始移动...")
+
+        # 2. 下发启动指令给 PLC 3
+        homer.start_homing()
+        
+        # 启动键盘监听器，非阻塞捕捉刹车信号
+        listener = keyboard.Listener(on_press=on_press)
+        listener.start()
+
+        print("\n🚀 电机运行中... (按【空格键】刹车)")
+
+        # 3. 监控循环
+        global user_triggered_stop
+        while True:
+            # 读取 PMAC 电机 5 的当前位置 (Modbus 地址 18)
+            # 注意：在你的 robot_api.py 中，read_int32_array(10, 5) 对应 5 个电机
+            # 电机 5 的地址是 10 + 4*2 = 18
+            try:
+                curr_pos = robot.modbus.read_int32_array(address=18, count=1)[0]
+                state, reason, iq, fe = homer.read_status()
+                
+                # 动态刷新终端显示
+                sys.stdout.write(f"\r📊 当前位置: {curr_pos} | 电流: {iq} | PLC状态: {state}      ")
+                sys.stdout.flush()
+
+            except Exception as e:
+                pass # 忽略单次通讯抖动
+
+            # 4. 判断用户是否按下了停止键
+            if user_triggered_stop:
+                print("\n\n🛑 接收到手动刹车信号！正在急停...")
+                homer.stop_movement()
+                time.sleep(0.5) # 给电机一点时间彻底停稳
+                
+                print("🏠 正在将当前位置设为绝对零点...")
+                homer.confirm_and_set_zero()
+                time.sleep(0.5)
+                
+                # 重新读一次位置确认
+                final_pos = robot.modbus.read_int32_array(address=18, count=1)[0]
+                print(f"✅ 设零完成！当前电机 5 读数: {final_pos}")
+                break
+
+            # 5. 如果底层 PLC 意外触发了硬件保护（例如真撞墙了或者电流过大）
+            if state == 3:
+                print(f"\n\n⚠️ 底层 PLC 触发物理保护停车！(原因码: {reason})")
+                print("可能是提前撞到了硬挡块。")
+                homer.confirm_and_set_zero()
+                print("✅ 已就地设零。")
+                break
+
+            time.sleep(0.05) # 20Hz 刷新率
+
+    except KeyboardInterrupt:
+        print("\n⏹️ 程序被强行中断，发送紧急停止指令...")
+        homer.stop_movement()
+    finally:
+        if 'listener' in locals():
+            listener.stop()
+        robot.close()
+        print("🔌 连接已安全关闭。")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/omega_sdk/__init__.py">
+
+</file>
+
+<file path="src/pmac_sdk/comms/__init__.py">
+
+</file>
+
+<file path="src/pmac_sdk/comms/modbus_client.py">
+from pymodbus.client.sync import ModbusTcpClient
+from typing import List
+
+class ModbusClient32Bit:
+    """封装底层的 32-bit Modbus 读写操作，与具体业务无关"""
+    def __init__(self, ip: str, port: int, slave_id: int):
+        self.client = ModbusTcpClient(host=ip, port=port)
+        self.slave_id = slave_id
+
+    def connect(self) -> bool:
+        return self.client.connect()
+
+    def disconnect(self):
+        self.client.close()
+
+    @staticmethod
+    def _int32_to_registers(val: int) -> List[int]:
+        val = int(val) & 0xFFFFFFFF  
+        return [val & 0xFFFF, (val >> 16) & 0xFFFF]
+
+    @staticmethod
+    def _registers_to_int32(low: int, high: int) -> int:
+        val = low + (high << 16)
+        return val - 0x100000000 if val >= 0x80000000 else val
+
+    def write_int32_array(self, address: int, values: List[int]) -> bool:
+        regs = []
+        for v in values:
+            regs.extend(self._int32_to_registers(v))
+        res = self.client.write_registers(address=address, values=regs, unit=self.slave_id)
+        return not res.isError()
+
+    def read_int32_array(self, address: int, count: int) -> List[int]:
+        res = self.client.read_holding_registers(address=address, count=count * 2, unit=self.slave_id)
+        if res.isError():
+            raise ConnectionError(f"Modbus Read Error at address {address}")
+        return [self._registers_to_int32(res.registers[i*2], res.registers[i*2+1]) for i in range(count)]
+</file>
+
+<file path="src/pmac_sdk/controller/__init__.py">
+
+</file>
+
+<file path="src/pmac_sdk/core/__init__.py">
+
+</file>
+
+<file path="src/pmac_sdk/hardware/__init__.py">
+
+</file>
+
+<file path="src/pmac_sdk/__init__.py">
+
+</file>
+
+<file path=".gitignore">
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[codz]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+#   For a library or package, you might want to ignore these files since the code is
+#   intended to run in multiple environments; otherwise, check them in:
+# .python-version
+
+# pipenv
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
+#   However, in case of collaboration, if having platform-specific dependencies or dependencies
+#   having no cross-platform support, pipenv may install dependencies that don't work, or not
+#   install all needed dependencies.
+#Pipfile.lock
+
+# UV
+#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
+#   This is especially recommended for binary packages to ensure reproducibility, and is more
+#   commonly ignored for libraries.
+#uv.lock
+
+# poetry
+#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
+#   This is especially recommended for binary packages to ensure reproducibility, and is more
+#   commonly ignored for libraries.
+#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
+#poetry.lock
+#poetry.toml
+
+# pdm
+#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
+#   pdm recommends including project-wide configuration in pdm.toml, but excluding .pdm-python.
+#   https://pdm-project.org/en/latest/usage/project/#working-with-version-control
+#pdm.lock
+#pdm.toml
+.pdm-python
+.pdm-build/
+
+# pixi
+#   Similar to Pipfile.lock, it is generally recommended to include pixi.lock in version control.
+#pixi.lock
+#   Pixi creates a virtual environment in the .pixi directory, just like venv module creates one
+#   in the .venv directory. It is recommended not to include this directory in version control.
+.pixi
+
+# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# PyCharm
+#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
+#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
+#  and can be added to the global gitignore or merged into this file.  For a more nuclear
+#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
+#.idea/
+
+# Abstra
+# Abstra is an AI-powered process automation framework.
+# Ignore directories containing user credentials, local state, and settings.
+# Learn more at https://abstra.io/docs
+.abstra/
+
+# Visual Studio Code
+#  Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
+#  that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
+#  and can be added to the global gitignore or merged into this file. However, if you prefer, 
+#  you could uncomment the following to ignore the entire vscode folder
+# .vscode/
+
+# Ruff stuff:
+.ruff_cache/
+
+# PyPI configuration file
+.pypirc
+
+# Cursor
+#  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
+#  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
+#  refer to https://docs.cursor.com/context/ignore-files
+.cursorignore
+.cursorindexingignore
+
+# Marimo
+marimo/_static/
+marimo/_lsp/
+__marimo__/
+</file>
+
+<file path=".python-version">
+3.10
+</file>
+
+<file path=".repomixignore">
+# Add patterns to ignore here, one per line
+# Example:
+# *.log
+# tmp/
+.git/
+.venv/
+__pycache__/
+*.egg-info/
+uv.lock
+tests/
+LICENSE
+</file>
+
+<file path="main.py">
+def main():
+    print("Hello from robo-pmac-driver!")
+
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="README.md">
+# robo-pmac-driver
+modbus通信用于驱动pmac进行多轴控制
+</file>
+
+<file path="repomix.config.json">
+{
+  "$schema": "https://repomix.com/schemas/latest/schema.json",
+  "input": {
+    "maxFileSize": 52428800
+  },
+  "output": {
+    "filePath": "repomix-output.xml",
+    "style": "xml",
+    "parsableStyle": false,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "files": true,
+    "removeComments": false,
+    "removeEmptyLines": false,
+    "compress": false,
+    "topFilesLength": 5,
+    "showLineNumbers": false,
+    "truncateBase64": false,
+    "copyToClipboard": false,
+    "includeFullDirectoryStructure": false,
+    "tokenCountTree": false,
+    "git": {
+      "sortByChanges": true,
+      "sortByChangesMaxCommits": 100,
+      "includeDiffs": false,
+      "includeLogs": false,
+      "includeLogsCount": 50
+    }
+  },
+  "include": [],
+  "ignore": {
+    "useGitignore": true,
+    "useDotIgnore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": []
+  },
+  "security": {
+    "enableSecurityCheck": true
+  },
+  "tokenCount": {
+    "encoding": "o200k_base"
+  }
+}
+</file>
+
+<file path="apps/mult_aix_syn.py">
+import time
+import math
+import sys
+from pathlib import Path
+
+# 保证能找到 src 目录
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+
+from pmac_sdk.core.config_model import PMACConfig
+from pmac_sdk.controller.robot_api import PMACRobotController
+
+def main():
+    print("🧬 启动 1-4 轴 PVT 同步性协调测试...")
+    
+    pmac_config = PMACConfig(ip='192.168.0.200')
+    robot = PMACRobotController(pmac_config)
+    
+    # 测试参数
+    # 1-4 轴分别运动不同的幅度，但周期完全一致
+    amplitudes = [10.0, 20.0, -15.0, 30.0, 10.0]  # 5轴不动
+    freq = 0.2  # 0.2Hz (5秒一个来回)
+    
+    update_hz = 50
+    update_interval = 1.0 / update_hz
+    move_time_ms = update_interval * 1000 # 严格 20ms
+    
+    try:
+        # robot.hardware_boot()
+        # time.sleep(1)
+        robot.axi_syn_boot()
+        time.sleep(2)
+        robot.connect_and_home()    
+        base_pulses = robot.base_positions.copy()
+        
+        print("\n🚀 开始同步运动！")
+        print("💡 观察重点：虽然各轴摆动幅度不同，但它们应该同时到达最高点和最低点。")
+
+        # 使用虚拟时钟保证轨迹点的数学连续性
+        virtual_time = 0.0
+        next_call = time.perf_counter()
+
+        while True:
+            # 1. 计算 5 个轴的 P 和 V
+            target_pulses = []
+            velocities_p_ms = []
+            
+            for i in range(5):
+                amp = amplitudes[i]
+                # P(t) = A * sin(2*pi*f*t)
+                angle = amp * math.sin(2 * math.pi * freq * virtual_time)
+                # V(t) = A * 2*pi*f * cos(2*pi*f*t)
+                v_deg_s = amp * (2 * math.pi * freq) * math.cos(2 * math.pi * freq * virtual_time)
+                
+                # 转换脉冲
+                p = int(base_pulses[i] + (angle * robot.config.pulses_per_degree))
+                v = (v_deg_s * robot.config.pulses_per_degree) / 1000.0
+                
+                target_pulses.append(p)
+                velocities_p_ms.append(v)
+
+            # 2. 一次性下发 5 轴数据 (同步触发)
+            # 在 robot_api 内部，地址 0, 4, 8, 12, 16 会被依次写入
+            # 然后写入时间地址 40，最后写入触发地址 200
+            robot.move_pvt_stream(
+                target_pulses=target_pulses,
+                velocities=velocities_p_ms,
+                move_time=move_time_ms
+            )
+
+            # 3. 更新虚拟时间
+            virtual_time += update_interval
+            
+            # 4. 频率对齐
+            next_call += update_interval
+            sleep_time = next_call - time.perf_counter()
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            else:
+                next_call = time.perf_counter()
+
+    except KeyboardInterrupt:
+        print("\n⏹️ 测试结束。")
+    finally:
+        robot.close()
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="apps/teleop_cartesian.py">
+# apps/teleop_cartesian.py
+import time
+import sys
+from pathlib import Path
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+
+from omega_sdk.haptic_device import OmegaDevice, HapticState
+from pmac_sdk.core.config_model import PMACConfig
+from pmac_sdk.controller.robot_api import PMACRobotController
+
+class CartesianToJointAlgorithm:
+    """
+    逆运动学 (IK) 算法层的占位类。
+    职责：将 Omega 返回的 HapticState (笛卡尔空间) 映射为 PMAC 的目标关节角度。
+    """
+    def __init__(self):
+        # 这里可以加载 URDF、设定基座标系偏置等
+        pass
+
+    def solve(self, haptic_state: HapticState) -> list[float]:
+        """
+        输入: 主手的笛卡尔状态
+        输出: 包含 5 个关节目标角度的列表
+        """
+        # TODO: 在这里实现你真正的逆解逻辑
+        # 下面是一个伪造的映射逻辑，仅作演示：
+        # 比如将主手的 Z 轴平移映射到机械臂的 1 轴角度，夹爪映射到 5 轴
+        j1 = haptic_state.pos[2] * 100.0  
+        j2 = 0.0
+        j3 = 0.0
+        j4 = haptic_state.euler[0] * 0.5  
+        j5 = haptic_state.gripper_deg
+        
+        return [j1, j2, j3, j4, j5]
+
+def main():
+    # 1. 实例化各个解耦的模块
+    omega = OmegaDevice()
+    ik_solver = CartesianToJointAlgorithm()
+    
+    pmac_config = PMACConfig(ip='192.168.0.200')
+    robot = PMACRobotController(pmac_config)
+    
+    try:
+        # 2. 硬件连接
+        if not omega.connect():
+            return
+            
+        robot.hardware_boot()
+        time.sleep(2)
+        robot.connect_and_home()
+        
+        print("\n🚀 开始笛卡尔遥操作 (按 Ctrl+C 退出)...")
+        
+        # 3. 遥操作主循环
+        update_interval = 0.05  # 20Hz 控制频率
+        
+        while True:
+            start_time = time.time()
+            
+            # [Input] 获取主手当前状态
+            haptic_data = omega.get_state()
+            
+            # [Algorithm] 通过预留算法层进行逆解计算
+            target_joint_angles = ik_solver.solve(haptic_data)
+            
+            # [Output] 转换为 PMAC 脉冲并下发
+            # 获取基于零点偏置的绝对脉冲
+            targets_pulses = []
+            for idx, angle in enumerate(target_joint_angles):
+                pulse = int(robot.config.zero_offsets[idx] + (angle * robot.config.pulses_per_degree))
+                targets_pulses.append(pulse)
+            
+            # 批量下发给底层 (动态匹配 move_time 以保证轨迹平滑)
+            robot.move_joints(
+                target_pulses=targets_pulses,
+                move_time=int(update_interval * 1000), 
+                accel=10,   # 小加速度拟合连续轨迹
+                scurve=0
+            )
+            
+            # 维持稳定的控制周期
+            elapsed = time.time() - start_time
+            if elapsed < update_interval:
+                time.sleep(update_interval - elapsed)
+                
+    except KeyboardInterrupt:
+        print("\n⏹️ 接收到中断信号，正在退出遥操作...")
+    except Exception as e:
+        print(f"\n❌ 运行时异常: {e}")
+    finally:
+        omega.close()
+        robot.close()
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="apps/teleop_xyz_direct.py">
+import time
+import sys
+from pathlib import Path
+from typing import List
+
+# 确保能导入 src 下的模块
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+
+from omega_sdk.haptic_device import OmegaDevice, HapticState
+from pmac_sdk.core.config_model import PMACConfig
+from pmac_sdk.controller.robot_api import PMACRobotController
+
+# ==========================================
+# [解耦的算法层] XYZ 直映关节映射器
+# ==========================================
+class SimpleXYZMapper:
+    def __init__(self, scale_x: float = 150.0, scale_y: float = 150.0, scale_z: float = 150.0):
+        # 放大系数：0.1米的主手位移 -> 对应多少度关节角
+        self.scale = [scale_x, scale_y, scale_z]
+        # 弹性牵引绳的长度（度）。主手可以走很远，但目标点最多只能领先电机真实位置 15 度
+        self.max_lead_deg = 30.0 
+
+    def solve(self, haptic_state: HapticState, current_angles: List[float]) -> List[float]:
+        x, y, z = haptic_state.pos[0], haptic_state.pos[1], haptic_state.pos[2]
+        
+        # 1. 计算主手的“理想目标角度” (绝对角度偏移量)
+        ideal_target_0 = x * self.scale[0]
+        ideal_target_1 = y * self.scale[1]
+        ideal_target_2 = z * self.scale[2]
+        
+        # 2. 复制当前真实角度，准备进行限位加工
+        targets = current_angles.copy()
+        
+        # 3. 施加弹性牵引绳逻辑 (防猛拉、防过冲)
+        def apply_leash(ideal_angle, current_angle):
+            max_allowed = current_angle + self.max_lead_deg
+            min_allowed = current_angle - self.max_lead_deg
+            # 将理想角度强制夹在这个安全范围内
+            return max(min_allowed, min(ideal_angle, max_allowed))
+            
+        targets[0] = apply_leash(ideal_target_0, current_angles[0])
+        targets[1] = apply_leash(ideal_target_1, current_angles[1])
+        targets[2] = apply_leash(ideal_target_2, current_angles[2])
+        
+        return targets
+
+# ==========================================
+# [应用层] 主控循环
+# ==========================================
+def main():
+    print("初始化系统中...")
+    omega = OmegaDevice()
+    # scale 可根据实际手感调大或调小
+    mapper = SimpleXYZMapper(scale_x=1000.0, scale_y=1000.0, scale_z=1000.0) 
+    
+    pmac_config = PMACConfig(ip='192.168.0.200')
+    robot = PMACRobotController(pmac_config)
+    
+    try:
+        # 1. 硬件连接与初始化
+        if not omega.connect():
+            print("❌ 主手连接失败，退出。")
+            return
+            
+        robot.hardware_boot()
+        time.sleep(2)
+        robot.connect_and_home()
+        print("\n✅ 系统就绪！当前进入 XYZ -> Joint1,2,3 直接映射测试模式。")
+        
+        # 获取系统启动时的物理脉冲基准，作为 0 度参考点
+        base_pulses = list(robot.base_positions)
+        
+        # 2. 遥操作主循环
+        update_interval = 0.03  # 约 33Hz 控制频率
+        loop_count = 0
+        total_modbus_time = 0
+        
+        print("\n🚀 开始 Omega 主手遥操作 (按 Ctrl+C 退出)...")
+        print("⚠️ 警告：请先稳住主手柄再开始移动！直接松开手柄会导致机械臂快速回零点！")
+        
+        while True:
+            loop_start = time.perf_counter()
+            
+            # [步骤 A] 读取机械臂真实位置
+            current_pulses = robot.modbus.read_int32_array(address=10, count=5)
+            current_angles_deg = [(p - base_pulses[i]) / robot.config.pulses_per_degree for i, p in enumerate(current_pulses)]
+            
+            # [步骤 B] 读取主手状态并映射
+            haptic_data = omega.get_state()
+            target_angles_deg = mapper.solve(haptic_data, current_angles_deg)
+            
+            # [步骤 C] 转换为底层脉冲并下发
+            targets_pulses = []
+            for idx, angle_deg in enumerate(target_angles_deg):
+                pulse = int(base_pulses[idx] + (angle_deg * robot.config.pulses_per_degree))
+                targets_pulses.append(pulse)
+                
+            modbus_start = time.perf_counter()
+            robot.move_joints(
+                target_pulses=targets_pulses,
+                move_time=int(update_interval * 1000), 
+                accel=10, 
+                scurve=0
+            )
+            modbus_cost = time.perf_counter() - modbus_start
+            
+            # [步骤 D] 维持控制周期并打印 Debug
+            loop_cost = time.perf_counter() - loop_start
+            sleep_time = update_interval - loop_cost
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+                
+            loop_count += 1
+            total_modbus_time += modbus_cost
+            if loop_count % 15 == 0:
+                avg_modbus = (total_modbus_time / 15) * 1000 
+                real_hz = 1.0 / (time.perf_counter() - loop_start) 
+                
+                # 打印主手 X 坐标 和 机械臂 1 轴 目标角度的对比
+                print(f"📊 Debug | 主手 X: {haptic_data.pos[0]:.3f}m | "
+                      f"目标角度[0]: {target_angles_deg[0]:.2f}° | "
+                      f"真实角度[0]: {current_angles_deg[0]:.2f}° | "
+                      f"Modbus: {avg_modbus:.1f}ms | 频率: {real_hz:.1f}Hz")
+                total_modbus_time = 0
+                
+    except KeyboardInterrupt:
+        print("\n⏹️ 接收到中断信号，正在退出...")
+    except Exception as e:
+        print(f"\n❌ 运行时异常: {e}")
+    finally:
+        omega.close()
+        robot.close()
+        print("🔌 系统已安全关闭。")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="examples/02_multi_axis_test.py">
+import time
+import sys
+import math # 引入数学库计算正弦曲线
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+
+from pmac_sdk.core.config_model import PMACConfig
+from pmac_sdk.controller.robot_api import PMACRobotController
+
+def main():
+    # 1. 实例化配置与控制器
+    config = PMACConfig(ip='192.168.0.200')
+    robot = PMACRobotController(config)
+    
+    try:
+        robot.hardware_boot()
+        print("等待 2 秒让 PLC 完全启动...")
+        time.sleep(2)
+        
+        robot.connect_and_home()
+        
+        input("\n[交互] 按下回车键开始测试：3 轴和 4 轴将按照正弦曲线连续运动 (按 Ctrl+C 随时停止)...")
+        
+        # ==========================================
+        # 正弦曲线运动参数设置 (可随时调节)
+        # ==========================================
+        amplitude = 10.0          # 幅值 (度)：轴将在 -15° 到 +15° 之间来回摆动
+        frequency = 1           # 频率 (Hz)：0.5Hz 代表 2 秒完成一次完整的往复运动
+        update_interval = 0.05    # 控制周期/下发频率：0.05秒 (即 20Hz 更新率)
+        test_duration = 60.0      # 总测试时长 (秒)，设为 float('inf') 可无限运行
+        
+        # 确认你代码里对应的轴索引
+        joint_idx_3 = 2
+        joint_idx_4 = 3
+        
+        print(f"\n-> 开始双轴正弦运动: 幅值 ±{amplitude}°, 频率 {frequency}Hz")
+        start_time = time.time()
+        
+        # 4. 执行连续的循环运动
+        while True:
+            elapsed_time = time.time() - start_time
+            
+            # 如果到达测试总时长，退出循环
+            if elapsed_time > test_duration:
+                break
+                
+            # 计算当前时刻的目标角度: A * sin(2 * π * f * t)
+            target_angle = amplitude * math.sin(2 * math.pi * frequency * elapsed_time)
+            
+            # 依次下发指令 (将运动时间与下发周期匹配，加减速设小以拟合连续轨迹)
+            # --- 下发 3 轴 ---
+            robot.move_single_joint_angle(
+                joint_idx=joint_idx_3, 
+                angle=target_angle,
+                move_time=int(update_interval * 1000), 
+                accel=10, 
+                scurve=0
+            )
+            
+            # --- 下发 4 轴 ---
+            robot.move_single_joint_angle(
+                joint_idx=joint_idx_4, 
+                angle=target_angle,
+                move_time=int(update_interval * 1000), 
+                accel=10, 
+                scurve=0
+            )
+            
+            # 延时以维持控制周期
+            time.sleep(update_interval)
+            
+        print("\n🏁 设定的测试时间结束，运动停止。")
+        
+    except KeyboardInterrupt:
+        # 捕获 Ctrl+C，安全退出
+        print("\n⏹️ 检测到 Ctrl+C，已手动停止正弦运动测试。")
+        
+    except Exception as e:
+        print(f"❌ 运行报错: {e}")
+        
+    finally:
+        # 获取最终位置对比
+        try:
+            # 稍微等电机停稳
+            time.sleep(0.5)
+            current_pos = robot.modbus.read_int32_array(address=10, count=5)
+            print(f"📊 最终停止时五轴位置: {current_pos}")
+        except Exception as e:
+            print(f"⚠️ 读取最终位置失败: {e}")
+            
+        robot.close()
+        print("🔌 连接已关闭。")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/omega_sdk/haptic_device.py">
+# src/omega_sdk/haptic_device.py
+import numpy as np
+import forcedimension_core.dhd as dhd
+import forcedimension_core.drd as drd
+import ctypes
+from scipy.spatial.transform import Rotation as R
+from dataclasses import dataclass
+
+@dataclass
+class HapticState:
+    """定义主手状态的标准化数据结构"""
+    pos: np.ndarray       # [x, y, z]
+    rot_matrix: np.ndarray # 3x3 旋转矩阵 (如果逆解需要)
+    euler: np.ndarray     # [Roll, Pitch, Yaw] (度)
+    gripper_deg: float    # 夹爪角度
+
+class OmegaDevice:
+    """Force Dimension Omega/Sigma 主手硬件抽象类"""
+    def __init__(self):
+        self._gripper_ptr = ctypes.pointer(ctypes.c_double(0.0))
+        self._pos = np.zeros(3)
+        self._matrix = np.eye(3)
+        self._is_connected = False
+
+    def connect(self) -> bool:
+        """初始化 DRD/DHD 设备并进入自由移动模式"""
+        dhd.close()
+        res = drd.open()
+        if res < 0:
+            print(f"❌ 无法打开 DRD 模块 (错误码: {res})")
+            return False
+
+        if not drd.isInitialized():
+            print("正在进行自动校准，请松开主手...")
+            if drd.autoInit() < 0:
+                print("❌ 校准失败!")
+                return False
+        
+        dhd.enableForce(True)
+        # 显式传入 force_on 位置参数，避免 drd 模块抛出 TypeError
+        drd.stop(True) 
+        
+        self._is_connected = True
+        print("✅ Omega 主手已就绪 (透明模式)")
+        return True
+
+    def get_state(self) -> HapticState:
+        """读取最新物理状态，对外部隐藏 ctypes 和底层 API 细节"""
+        if not self._is_connected:
+            raise RuntimeError("设备未连接，无法读取状态")
+
+        dhd.getPositionAndOrientationFrame(self._pos, self._matrix)
+        dhd.getGripperAngleDeg(self._gripper_ptr)
+        
+        try:
+            r = R.from_matrix(self._matrix)
+            euler = r.as_euler('xyz', degrees=True)
+        except ValueError:
+            euler = np.zeros(3)
+
+        return HapticState(
+            pos=self._pos.copy(),
+            rot_matrix=self._matrix.copy(),
+            euler=euler,
+            gripper_deg=self._gripper_ptr.contents.value
+        )
+
+    def close(self):
+        """安全释放硬件资源"""
+        if self._is_connected:
+            drd.stop(False) # 关闭 force_on
+            drd.close()
+            dhd.close()
+            self._is_connected = False
+            print("🔌 Omega 主手已安全关闭")
+</file>
+
+<file path="src/pmac_sdk/hardware/ssh_manager.py">
+import paramiko
+import time
+
+class PMACHardwareManager:
+    """管理 PMAC 底层系统级操作 (上下电、PLC启停)"""
+    def __init__(self, ip, user, password):
+        self.ip = ip
+        self.user = user
+        self.password = password
+
+    def send_gpascii_commands(self, commands: list, delay=0.5):
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            ssh.connect(hostname=self.ip, port=22, username=self.user, password=self.password, timeout=10)
+            print("🟢 SSH 连接成功。")
+            
+            for desc, cmd in commands:
+                print(desc)
+                stdin, stdout, stderr = ssh.exec_command(f"echo '{cmd}' | gpascii -2")
+                
+                # 【关键还原】：物理阻塞，确保 PMAC 消化完毕
+                output = stdout.read().decode().strip()
+                error = stderr.read().decode().strip()
+                
+                if error:
+                    print(f"❌ 指令 [{cmd}] 执行出错: {error}")
+                else:
+                    print(f"✅ 响应: {output}")
+                
+                time.sleep(delay)
+            print("✨ 硬件序列执行完毕")
+        except Exception as e:
+            print(f"❌ 初始化严重错误: {e}")
+        finally:
+            ssh.close()
+            
+    def init_motors(self):
+        print(f"🔌 [系统初始化] 正在通过 SSH 唤醒 PMAC ({self.ip})...")
+        self.send_gpascii_commands([
+            ("🛑 正在停用 PLC 2 和 PLC 3...", "disable plc 2,3"),
+            ("⚡ 正在执行电机上电 (#1..5k)...", "#1..5j/"),
+            ("🔄 正在重新启用 PLC 2 和 PLC 3...", "enable plc 2,3")
+        ])
+    def init_mult_aix(self):
+        print(f"多轴协同启动")
+        self.send_gpascii_commands([
+            ("🛑 正在停用 PLC 2 和 PLC 3...", "disable plc 2,3"),
+            ("🧹 清除坐标系错误状态...", "&1A"), 
+            ("电机清除错误","#1..5k/"),
+            ("⚡ 正在执行电机上电 (#1..5j/)...", "#1..5j/"), 
+            ("映射轴","&1 #1->X #2->Y #3->Z #4->A #5->B"),
+            ("🏃 启动多轴协同运动程序...", "&1 b1r"),       
+            ("🔄 正在重新启用 PLC 2 和 PLC 3...", "enable plc 2,3")
+        ], delay=0.5)
+</file>
+
+<file path="apps/teleop_keyboard.py">
+import time
+import sys
+from pathlib import Path
+
+# 保证能找到 src 目录
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+
+from pmac_sdk.core.config_model import PMACConfig
+from pmac_sdk.controller.robot_api import PMACRobotController
+from pynput import keyboard
+
+# ==========================================
+# 第一层：输入解耦 (Input Layer)
+# ==========================================
+class KeyboardDevice:
+    """
+    键盘输入监听类 (替代 OmegaDevice)
+    非阻塞地捕获按键状态，解耦具体硬件。
+    """
+    def __init__(self):
+        self.pressed_keys = set()
+        self.listener = keyboard.Listener(
+            on_press=self._on_press,
+            on_release=self._on_release
+        )
+
+    def _on_press(self, key):
+        try:
+            self.pressed_keys.add(key.char.lower())
+        except AttributeError:
+            pass # 忽略非字母按键
+
+    def _on_release(self, key):
+        try:
+            self.pressed_keys.discard(key.char.lower())
+        except AttributeError:
+            pass
+
+    def start(self):
+        self.listener.start()
+        print("⌨️  键盘监听已启动...")
+
+    def stop(self):
+        self.listener.stop()
+
+    def get_state(self) -> set:
+        """返回当前被按下的所有键"""
+        return self.pressed_keys
+
+# ==========================================
+# 第二层：算法与映射解耦 (Algorithm Layer)
+# ==========================================
+class SimpleJointMapper:
+    def __init__(self, step_size_deg=3.0): 
+        # 每次循环的角度步进量（在 16Hz 下，1度代表期望速度 16度/秒）
+        self.step_size = step_size_deg 
+        # 维护一个纯软状态 (我们的“胡萝卜”)
+        self.target_angles = None 
+        # 牵引绳的最大长度（度）。这个值决定了“手感”：
+        # 太大 -> 松手后会有惯性（继续转一会）
+        # 太小 -> 电机跑不快（蠕动）
+        self.max_lead_deg = 15.0 
+
+    def solve(self, active_keys: set, current_angles: list[float]) -> list[float]:
+        # 第一次运行，将胡萝卜对齐到电机的真实位置
+        if self.target_angles is None:
+            self.target_angles = current_angles.copy()
+
+        # 根据按键移动“胡萝卜”
+        if 'a' in active_keys: self.target_angles[0] -= self.step_size
+        if 'd' in active_keys: self.target_angles[0] += self.step_size
+        if 'w' in active_keys: self.target_angles[1] += self.step_size
+        if 's' in active_keys: self.target_angles[1] -= self.step_size
+        if 'q' in active_keys: self.target_angles[2] += self.step_size
+        if 'e' in active_keys: self.target_angles[2] -= self.step_size
+        if 'r' in active_keys: self.target_angles[3] += self.step_size
+        if 'f' in active_keys: self.target_angles[3] -= self.step_size
+
+        # 【核心逻辑：弹性牵引绳】
+        # 限制“胡萝卜”不能离“电机真实位置”太远，防止指令积压
+        for i in range(5):
+            max_allowed = current_angles[i] + self.max_lead_deg
+            min_allowed = current_angles[i] - self.max_lead_deg
+            
+            if self.target_angles[i] > max_allowed:
+                self.target_angles[i] = max_allowed
+            elif self.target_angles[i] < min_allowed:
+                self.target_angles[i] = min_allowed
+
+        return self.target_angles
+
+# ==========================================
+# 第三层：调度与执行 (Application Loop)
+# ==========================================
+def main():
+    print("初始化系统中...")
+    
+    # 1. 实例化各个解耦模块
+    kbd = KeyboardDevice()
+    mapper = SimpleJointMapper(step_size_deg=10) # 降低步进，让运动更平滑
+    
+    pmac_config = PMACConfig(ip='192.168.0.200')
+    robot = PMACRobotController(pmac_config)
+    
+    try:
+        # 2. 硬件连接 (与原本逻辑保持一致)
+        robot.hardware_boot()
+        time.sleep(2)
+        robot.connect_and_home()
+        
+        # 获取系统启动时的物理脉冲基准，作为 0 度参考点
+        base_pulses = robot.base_positions.copy()
+        
+        kbd.start()
+        print("\n🚀 开始键盘遥操作测试 (按 Ctrl+C 退出)...")
+        print("🕹️  控制说明:")
+        print("   轴1: A / D")
+        print("   轴2: W / S")
+        print("   轴3: Q / E")
+        print("   轴4: R / F")
+        
+        # 3. 遥操作主循环 (固定频率 20Hz)
+       # 3. 遥操作主循环 (固定频率 20Hz)
+        update_interval = 0.03
+        
+        # [Debug 专用变量]
+        loop_count = 0
+        total_modbus_time = 0
+        
+        while True:
+            loop_start = time.perf_counter() # 使用高精度时钟
+            current_pulses = robot.modbus.read_int32_array(address=10, count=5)
+            current_angles_deg = [(p - base_pulses[i]) / robot.config.pulses_per_degree for i, p in enumerate(current_pulses)]
+            # 1. 捕捉输入与计算目标
+            keys = kbd.get_state()
+            target_angles_deg = mapper.solve(keys, current_angles_deg)
+            
+            targets_pulses = []
+            for idx, angle_deg in enumerate(target_angles_deg):
+                pulse = int(base_pulses[idx] + (angle_deg * robot.config.pulses_per_degree))
+                targets_pulses.append(pulse)
+            
+            # 2. 测量 Modbus 通信耗时
+            modbus_start = time.perf_counter()
+            robot.move_joints(
+                target_pulses=targets_pulses,
+                move_time=int(update_interval * 1000), 
+                accel=10, 
+                scurve=0
+            )
+            modbus_cost = time.perf_counter() - modbus_start
+            
+            # 3. 计算循环耗时与自适应休眠
+            loop_cost = time.perf_counter() - loop_start
+            sleep_time = update_interval - loop_cost
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            
+            # [Debug 打印] 每 10 次循环打印一次诊断信息 (约 0.5 秒)
+            loop_count += 1
+            total_modbus_time += modbus_cost
+            if loop_count % 10 == 0:
+                avg_modbus = (total_modbus_time / 10) * 1000 # 换算为毫秒
+                real_hz = 1.0 / (time.perf_counter() - loop_start) # 实际运行频率
+                
+                print(f"📊 Debug Info | 按键: {list(keys)} | "
+                      f"目标角度[0]: {target_angles_deg[0]:.2f}° | "
+                      f"Modbus 耗时: {avg_modbus:.1f}ms | "
+                      f"实际循环频率: {real_hz:.1f}Hz | "
+                      f"是否超时: {'❌' if sleep_time <= 0 else '✅'}")
+                total_modbus_time = 0
+                
+    except KeyboardInterrupt:
+        print("\n⏹️ 接收到退出信号。")
+    except Exception as e:
+        print(f"\n❌ 运行时异常: {e}")
+    finally:
+        kbd.stop()
+        robot.close()
+        print("🔌 系统已安全关闭。")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="apps/teleop_pvt_keyboard.py">
+import time
+import sys
+import math
+from pathlib import Path
+from pynput import keyboard
+
+# 保证能找到 src 目录
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+
+from pmac_sdk.core.config_model import PMACConfig
+from pmac_sdk.controller.robot_api import PMACRobotController
+
+# ==========================================
+# 第一层：输入捕获 (支持特殊功能键)
+# ==========================================
+class KeyboardDevice:
+    def __init__(self):
+        self.pressed_keys = set()
+        self.listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
+        self.on_speed_change = None # 回调函数
+
+    def _on_press(self, key):
+        try:
+            k = key.char.lower() if hasattr(key, 'char') and key.char else str(key)
+            self.pressed_keys.add(k)
+            
+            # 触发速度调节回调
+            if self.on_speed_change:
+                if k == 'z': self.on_speed_change(-2.0) # 减速
+                if k == 'x': self.on_speed_change(2.0)  # 加速
+        except Exception: pass
+
+    def _on_release(self, key):
+        try:
+            k = key.char.lower() if hasattr(key, 'char') and key.char else str(key)
+            self.pressed_keys.discard(k)
+        except Exception: pass
+
+    def start(self): self.listener.start()
+    def stop(self): self.listener.stop()
+    def get_state(self) -> set: return self.pressed_keys
+
+# ==========================================
+# 第二层：轨迹规划 (带动态速度管理)
+# ==========================================
+class KeyboardPVTPlanner:
+    def __init__(self, update_hz=50, init_speed=20.0):
+        self.dt = 1.0 / update_hz
+        self.current_max_speed = init_speed 
+        self.target_angles = None
+        
+        # 限制范围，防止速度过快损坏硬件
+        self.min_speed = 2.0
+        self.max_speed = 160.0
+        
+        self.key_map = {
+            'w': (0, 1), 's': (0, -1),
+            'a': (1, 1), 'd': (1, -1),
+            'q': (2, 1), 'e': (2, -1),
+            'r': (3, 1), 'f': (3, -1),
+            't': (4, 1), 'g': (4, -1),
+        }
+
+    def adjust_speed(self, delta):
+        self.current_max_speed = max(self.min_speed, min(self.max_speed, self.current_max_speed + delta))
+        print(f"🚀 当前设定的轴运行速度: {self.current_max_speed:.1f} °/s")
+
+    def compute_next_step(self, active_keys, current_angles):
+        if self.target_angles is None:
+            self.target_angles = list(current_angles)
+
+        next_velocities_deg_s = [0.0] * 5
+        
+        for key, (axis_idx, direction) in self.key_map.items():
+            if key in active_keys:
+                next_velocities_deg_s[axis_idx] = direction * self.current_max_speed
+                self.target_angles[axis_idx] += next_velocities_deg_s[axis_idx] * self.dt
+
+        return self.target_angles, next_velocities_deg_s
+
+# ==========================================
+# 第三层：主循环
+# ==========================================
+def main():
+    print("🎮 启动 PVT 键盘遥操作 (动态调速版)...")
+    
+    update_hz = 50
+    update_interval = 1.0 / update_hz
+    move_time_ms = update_interval * 1000 
+    
+    kbd = KeyboardDevice()
+    planner = KeyboardPVTPlanner(update_hz=update_hz, init_speed=20.0)
+    
+    # 绑定调速快捷键到 Planner
+    kbd.on_speed_change = planner.adjust_speed
+    
+    pmac_config = PMACConfig(ip='192.168.0.200')
+    robot = PMACRobotController(pmac_config)
+    
+    try:
+        robot.hardware_boot()
+        time.sleep(2)
+        robot.connect_and_home()
+        base_pulses = robot.base_positions.copy()
+        
+        current_pulses = robot.modbus.read_int32_array(address=10, count=5)
+        curr_angles = [(p - base_pulses[i]) / robot.config.pulses_per_degree for i, p in enumerate(current_pulses)]
+        
+        kbd.start()
+        print("\n✅ 控制就绪！")
+        print("👉 移动: WASD / QE / RF / TG")
+        print("👉 调速: Z (减速) / X (加速)")
+        print(f"👉 初始速度: {planner.current_max_speed} °/s\n")
+
+        next_call = time.perf_counter()
+
+        while True:
+            # 1. 计算
+            active_keys = kbd.get_state()
+            target_angles, v_degs = planner.compute_next_step(active_keys, curr_angles)
+            
+            # 2. 转换
+            target_pulses = []
+            velocities_p_ms = []
+            for i in range(5):
+                p = int(base_pulses[i] + (target_angles[i] * robot.config.pulses_per_degree))
+                v = (v_degs[i] * robot.config.pulses_per_degree) / 1000.0
+                target_pulses.append(p)
+                velocities_p_ms.append(v)
+            
+            # 3. 下发
+            robot.move_pvt_stream(target_pulses, velocities_p_ms, move_time_ms)
+            
+            # 4. 对齐
+            next_call += update_interval
+            sleep_time = next_call - time.perf_counter()
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            else:
+                next_call = time.perf_counter()
+
+    except KeyboardInterrupt:
+        print("\n⏹️ 停止操作。")
+    finally:
+        kbd.stop()
+        robot.close()
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="examples/00_single_axis_move_test.py">
+import time
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+
+from pmac_sdk.core.config_model import PMACConfig
+from pmac_sdk.controller.robot_api import PMACRobotController
+
+def main():
+    # 1. 实例化配置与控制器 (请根据实际情况修改 IP)
+    config = PMACConfig(ip='192.168.0.200')
+    robot = PMACRobotController(config)
+    
+    try:
+        # 2. 硬件启动
+        robot.hardware_boot()
+        print("正在等待系统启动...")
+        time.sleep(2)
+        
+        # ==========================================
+        # 增量轴 (电机5) 初始化流程
+        # ==========================================
+        print("\n⚠️ 【系统安全提示】")
+        print("由于电机 5 (直线单元) 是增量编码器，每次上电需要重新标定零点。")
+        confirm_zero = input("👉 请手动将直线滑块推到物理最左侧/最底端死区，推好后按回车键继续...")
+                
+        # ==========================================
+        # Modbus 连接与锁存当前状态
+        # ==========================================
+        robot.connect_and_home()
+        print("✅ 系统已完全就绪。")
+
+        # ==========================================
+        # 运动参数配置
+        # ==========================================
+        joint_idx = 1         # 要操作的轴 (0-4)
+        target_angle = 5.0   # 目标角度 (度)
+        move_time = 200      # 运动耗时 (毫秒)
+        
+        print(f"\n🚀 准备移动轴 {joint_idx} 到 {target_angle}°")
+        confirm = input("确认执行运动？(按回车键开始 / 输入 n 退出): ")
+        
+        if confirm.lower() == 'n':
+            return
+
+        # 3. 执行单轴运动
+        robot.move_single_joint_angle(
+            joint_idx=joint_idx, 
+            angle=target_angle,
+            move_time=move_time,
+            accel=150,        
+            scurve=20         
+        )
+        
+        # 等待运动完成
+        print(f"正在执行运动，预计耗时 {move_time/1000} 秒...")
+        time.sleep(move_time / 1000.0 + 0.5)
+        
+        # 4. 读取当前位置确认
+        pos_array = robot.modbus.read_int32_array(address=10, count=5)
+        print(f"\n📊 运动完成！当前五轴位置: {pos_array}")
+
+    except Exception as e:
+        print(f"❌ 运行中出现错误: {e}")
+        
+    finally:
+        robot.close()
+        print("🔌 已关闭连接。")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="examples/01_single_axis_test.py">
+import time
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+
+from pmac_sdk.core.config_model import PMACConfig
+from pmac_sdk.controller.robot_api import PMACRobotController
+
+def main():
+    # 1. 实例化配置与控制器
+    config = PMACConfig(ip='192.168.0.200')
+    robot = PMACRobotController(config)
+    
+    try:
+        # 2. 硬件初始化与回零
+        robot.hardware_boot()
+        print("等待 2 秒让 PLC 完全启动...")
+        time.sleep(2)
+        
+        robot.connect_and_home()
+        
+        # ==========================================
+        # 往复运动参数设置
+        # ==========================================
+        joint_to_test = 3          # 控制的轴索引 (0 代表 1 轴)
+        target_angle_a = 20.0      # 目标位置 A (度)
+        target_angle_b = -20.0     # 目标位置 B (度)
+        
+        move_time_ms = 1500        # 运动耗时 (毫秒)：值越小速度越快
+        dwell_time = 0.5           # 到达位置后的停顿时间 (秒)
+        test_duration = 60.0       # 总测试时长 (秒)
+        
+        print(f"\n-> 开始往复运动测试: 轴 {joint_to_test}")
+        print(f"-> 运动范围: {target_angle_a}° <-> {target_angle_b}°")
+        print(f"-> 运行速度: 每段耗时 {move_time_ms}ms")
+        
+        input("\n[交互] 按下回车键开始运动 (按 Ctrl+C 随时停止)...")
+        
+        start_time = time.time()
+        current_target = target_angle_a # 初始目标设为 A
+        
+        # 3. 往复运动循环
+        while True:
+            elapsed_time = time.time() - start_time
+            if elapsed_time > test_duration:
+                break
+            
+            print(f"正在移动至: {current_target}°")
+            
+            # 下发单轴运动指令
+            robot.move_single_joint_angle(
+                joint_idx=joint_to_test, 
+                angle=current_target,
+                move_time=move_time_ms,   # 指定运动完成的时间
+                accel=200,                # 往复运动可以设置较大的加速度
+                scurve=10                 # 开启平滑 S 曲线，防止机械冲击
+            )
+            
+            # 等待运动完成 + 停顿时间
+            # 总等待时间 = (运动时间 / 1000) + 停顿时间
+            time.sleep((move_time_ms / 1000.0) + dwell_time)
+            
+            # 切换目标位置 (A -> B, B -> A)
+            if current_target == target_angle_a:
+                current_target = target_angle_b
+            else:
+                current_target = target_angle_a
+            
+        print("\n🏁 设定的测试时间结束，运动停止。")
+        
+    except KeyboardInterrupt:
+        print("\n⏹️ 检测到 Ctrl+C，已手动停止往复运动测试。")
+        
+    except Exception as e:
+        print(f"❌ 运行报错: {e}")
+        
+    finally:
+        # 停止并清理连接
+        try:
+            current_pos = robot.modbus.read_int32_array(address=10, count=5)
+            print(f"📊 最终停止时五轴位置: {current_pos}")
+        except:
+            pass
+            
+        robot.close()
+        print("🔌 连接已关闭。")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/pmac_sdk/core/config_model.py">
+from dataclasses import dataclass, field
+from typing import List
+
+@dataclass
+class PMACConfig:
+    ip: str = '192.168.0.200'
+    modbus_port: int = 502
+    slave_id: int = 1
+    ssh_user: str = 'root'
+    ssh_pass: str = 'deltatau'
+    
+    # 物理参数
+    encoder_resolution: int = 131072
+    gear_ratio: float = 97.34
+    zero_offsets: List[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
+    
+    joint_directions: List[int] = field(default_factory=lambda: [1, 1, 1, 1, 1])
+    @property
+    def pulses_per_degree(self) -> float:
+        return (self.encoder_resolution * self.gear_ratio) / 360.0
+</file>
+
+<file path="pyproject.toml">
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "robo-pmac-driver"
+version = "0.1.0"
+description = "PMAC multi-axis control driver"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "forcedimension-core>=1.0.0",
+    "numpy>=2.2.6",
+    "paramiko>=4.0.0",
+    "pymodbus==2.5.3",
+    "pynput>=1.8.1",
+    "scipy>=1.15.3",
+]
+</file>
+
+<file path="src/pmac_sdk/controller/robot_api.py">
+from ..core.config_model import PMACConfig
+from ..comms.modbus_client import ModbusClient32Bit
+from ..hardware.ssh_manager import PMACHardwareManager
+import time # 新增 time 导入，供休眠使用
+
+class PMACRobotController:
+    """具身智能上层控制接口 (严格遵循原机通信逻辑)"""
+    def __init__(self, config: PMACConfig):
+        self.config = config
+        self.modbus = ModbusClient32Bit(config.ip, config.modbus_port, config.slave_id)
+        self.hw_manager = PMACHardwareManager(config.ip, config.ssh_user, config.ssh_pass)
+        self.base_positions = [0, 0, 0, 0, 0]
+
+    def hardware_boot(self):
+        """执行硬件级别的上电和复位"""
+        self.hw_manager.init_motors()
+    def axi_syn_boot(self):
+        self.hw_manager.init_mult_aix()
+    def connect_and_home(self):
+        if not self.modbus.connect():
+            raise ConnectionError("❌ 无法连接到 PMAC，请检查网络设置。")
+        
+        # 1. 强制清空运动触发寄存器 (Modbus 地址 100 对应 PMAC P123)
+        self.modbus.write_int32_array(address=100, values=[0])
+        
+        # 2. 读取当前真实位置 (已删去你原代码中重复粘贴的冗余部分)
+        res = self.modbus.client.read_holding_registers(address=10, count=10, unit=self.config.slave_id)
+        if not res.isError():
+            regs = res.registers
+            for i in range(5):
+                self.base_positions[i] = self.modbus._registers_to_int32(regs[i*2], regs[i*2+1])
+                
+        # 3. 将当前位置立刻作为"目标位置"写回 Modbus 地址 0，防止 PLC 读到默认的 0
+        self.modbus.write_int32_array(address=0, values=self.base_positions)
+        
+        print(f"✅ 系统就绪，基准位置已锁定: {self.base_positions}")
+
+    def move_joints(self, target_pulses: list, move_time: int = 500, accel: int = 100, scurve: int = 50):
+        """核心底层：只下发原版的地址 0 和 地址 100，并新增动态时间参数"""
+        self.modbus.write_int32_array(address=0, values=target_pulses)
+        self.modbus.write_int32_array(address=20, values=[move_time, accel, scurve])
+        self.modbus.write_int32_array(address=100, values=[1])
+
+    def move_single_joint_angle(self, joint_idx: int, angle: float, move_time: int = 500, accel: int = 100, scurve: int = 50):
+        """按照你的原版逻辑换算角度，增加速度控制和【方向系数】"""
+        targets = list(self.base_positions)
+        
+        # 引入方向系数 (如果你在 config 没配，默认给 1)
+        direction = getattr(self.config, 'joint_directions', [1, 1, 1, 1, 1])[joint_idx]
+        
+        # 计算脉冲时乘以方向系数
+        target_pulses = int(self.base_positions[joint_idx] + (angle * self.config.pulses_per_degree * direction))
+        targets[joint_idx] = target_pulses
+        
+        print(f"🎯 正在向电机 {joint_idx+1} 发送指令: 目标角度 {angle}° (方向:{direction}), 绝对脉冲 {target_pulses}")
+        print(f"⏱️  期望耗时: {move_time}ms, 加减速: {accel}ms，s型时间{scurve}")
+        
+        self.move_joints(targets, move_time=move_time, accel=accel, scurve=scurve)
+        
+    def set_current_as_absolute_zero(self):
+        current_pos = self.modbus.read_int32_array(address=10, count=5)
+        self.config.zero_offsets = current_pos
+        self.base_positions = current_pos
+        print(f"✅ 已标定绝对零点偏置: {self.config.zero_offsets}")
+
+    def move_to_absolute_angle(self, joint_idx: int, absolute_angle: float, move_time: int = 500, accel: int = 100, scurve: int = 50):
+        """绝对控制：增加【方向系数】"""
+        current_pos = self.modbus.read_int32_array(address=10, count=5)
+        targets = list(current_pos)
+        
+        # 引入方向系数
+        direction = getattr(self.config, 'joint_directions', [1, 1, 1, 1, 1])[joint_idx]
+        
+        # 计算脉冲时乘以方向系数
+        target_pulses = int(self.config.zero_offsets[joint_idx] + (absolute_angle * self.config.pulses_per_degree * direction))
+        targets[joint_idx] = target_pulses
+        
+        print(f"🎯 绝对控制 -> 电机 {joint_idx+1} 目标角度 {absolute_angle}°, 对应脉冲 {target_pulses}")
+        
+        self.move_joints(targets, move_time=move_time, accel=accel, scurve=scurve)
+        
+    def move_pvt_stream(self, target_pulses: list, velocities: list, move_time: float):
+        """
+        专门适配 PVT 环形缓冲区的流式下发接口
+        :param target_pulses: 5个轴的目标绝对脉冲列表
+        :param velocities: 5个轴的目标瞬时速度 (脉冲/ms)
+        :param move_time: 本段轨迹执行的时间 (ms)
+        """
+        pos_scale = 1.0 # 必须与 PMAC global definitions.pmh 一致[cite: 6]
+        vel_time_scale = 10000.0
+        # 1. 缩放并转换数据为 32位整数
+        scaled_pos = [int(p * pos_scale) for p in target_pulses]
+        scaled_vel = [int(v * vel_time_scale) for v in velocities]
+        scaled_time = int(move_time * vel_time_scale)
+        
+        # 2. 写入位置 (地址 0, 4, 8, 12, 16)[cite: 4]
+        self.modbus.write_int32_array(address=0, values=scaled_pos)
+        
+        # 3. 写入时间 (地址 40)[cite: 4]
+        self.modbus.write_int32_array(address=40, values=[scaled_time])
+        
+        # 4. 写入速度 (地址 50, 54, 58, 62, 66)[cite: 4]
+        self.modbus.write_int32_array(address=50, values=scaled_vel)
+        
+        # 5. 发送触发信号 (地址 200)[cite: 4]
+        # 注意：PMAC PLC 2 处理完后会自动将其置零[cite: 4]
+        self.modbus.write_int32_array(address=200, values=[1])
+    
+    def close(self):
+        self.modbus.disconnect()
+        
+class VisualHomingManager:
+    """视觉引导回零托管类"""
+    def __init__(self, modbus_client):
+        self.modbus = modbus_client
+        self.CMD_ADDRESS = 220
+
+    def start_homing(self):
+        """下发指令 1：启动回零 (PLC将执行 #5j-)"""
+        self.modbus.write_int32_array(address=self.CMD_ADDRESS, values=[1])
+
+    def stop_movement(self):
+        """下发指令 2：强制停止 (PLC将执行 #5k)"""
+        self.modbus.write_int32_array(address=self.CMD_ADDRESS, values=[2])
+
+    def confirm_and_set_zero(self):
+        """下发指令 3：确认停稳并设零 (PLC将执行 #5hmz)"""
+        self.modbus.write_int32_array(address=self.CMD_ADDRESS, values=[3])
+
+    def read_status(self):
+        """读取底层状态 (状态, 停止原因, 电流, 跟随误差)"""
+        # PLC 中我们存放在 444, 446, 448, 450
+        state_reason = self.modbus.read_int32_array(address=444, count=2)
+        iq_fe = self.modbus.read_int32_array(address=448, count=2)
+        return state_reason[0], state_reason[1], iq_fe[0], iq_fe[1]
+</file>
+
+</files>
