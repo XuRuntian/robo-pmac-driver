@@ -16,7 +16,7 @@ class PMACConfig:
     encoder_resolution: int = 131072
     gear_ratio: float = 97.34
     # 直线轴 (5轴) 参数
-    pulses_per_meter: float = 100000.0  
+    pulses_per_meter: float = 62781744.0  
     
     # 基准偏置
     zero_offsets: List[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
