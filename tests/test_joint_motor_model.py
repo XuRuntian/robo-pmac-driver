@@ -3,6 +3,8 @@ import math
 import numpy as np
 
 from continuum_sdk.control.tendon_mapper import ContinuumTendonMapper
+from continuum_sdk.control.axis_mapper import ContinuumAxisMapper
+from continuum_sdk.control.pvt_mapper import ContinuumPVTMapper
 from continuum_sdk.core.factory import build_continuum_ik, build_tendon_mapper
 from continuum_sdk.core.config_loader import load_continuum_config
 from continuum_sdk.kinematics.joint_motor_model import JointSpace, TDRCJointMotorModel, angle_diff
@@ -81,3 +83,31 @@ def test_factory_uses_configured_actuation_parameters() -> None:
     assert ik.geometry.s_a == cfg.geometry.s_a
     assert_close(mapper.model.r_hole, cfg.actuation.hole_radius_m)
     assert_close(mapper.model.d_spool, cfg.actuation.spool_diameter_m)
+
+
+def test_pvt_mapper_builds_five_axis_command() -> None:
+    cfg = load_continuum_config("config/continuum.yaml")
+    ik = build_continuum_ik(cfg)
+    tendon_mapper = build_tendon_mapper(cfg)
+    axis_mapper = ContinuumAxisMapper(
+        pulses_per_rad=1000.0,
+        pulses_per_meter=100000.0,
+        axis_order=[0, 1, 2, 3, 4],
+        axis_signs=[1, 1, 1, 1, 1],
+    )
+    pvt_mapper = ContinuumPVTMapper(
+        ik=ik,
+        tendon_mapper=tendon_mapper,
+        axis_mapper=axis_mapper,
+        base_pulses=[0, 0, 0, 0, 0],
+        update_interval_s=0.02,
+        max_inner_steps=cfg.ik.max_inner_steps,
+    )
+
+    center_p, _ = ik.fk_tip()
+    command = pvt_mapper.build_command(center_p + np.array([0.001, 0.0, 0.0]))
+
+    assert len(command.axis_targets) == 5
+    assert len(command.target_pulses) == 5
+    assert len(command.velocities) == 5
+    assert all(isinstance(value, int) for value in command.target_pulses)
