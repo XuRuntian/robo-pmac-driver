@@ -3,43 +3,18 @@ import time
 import numpy as np
 
 from continuum_sdk.control.axis_mapper import ContinuumAxisMapper
-from continuum_sdk.control.tendon_mapper import ContinuumTendonMapper
+from continuum_sdk.core.factory import build_continuum_ik, build_tendon_mapper
 from continuum_sdk.core.config_loader import load_continuum_config
-from continuum_sdk.kinematics.dls_ik import DLSIK
-from continuum_sdk.kinematics.geometry import ContinuumGeometry
 from pmac_sdk.controller.robot_api import PMACRobotController
 from pmac_sdk.core.config_model import PMACConfig
-
-def build_ik(cfg) -> DLSIK:
-    geometry = ContinuumGeometry(
-        s_s=cfg.geometry.s_s,
-        s_a=cfg.geometry.s_a,
-        s_c=cfg.geometry.s_c,
-        h_bc=cfg.geometry.h_bc,
-        h_de=cfg.geometry.h_de,
-        theta_a_max=cfg.geometry.theta_a_max_rad,
-        theta_c_max=cfg.geometry.theta_c_max_rad,
-        d_min=cfg.geometry.d_min_m,
-        d_max=cfg.geometry.d_max_m,
-        base_offset=cfg.geometry.base_offset_m,
-    )
-
-    ik = DLSIK(geometry=geometry, task_mode=cfg.ik.task_mode)
-    ik.lmbda = cfg.ik.lambda_damping
-    ik.alpha = cfg.ik.alpha
-    ik.pos_tol = cfg.ik.pos_tol_m
-    ik.dir_tol = cfg.ik.dir_tol
-    ik.ori_tol = cfg.ik.ori_tol_rad
-
-    return ik
 
 def main():
     continuum_cfg = load_continuum_config("config/continuum.yaml")
     pmac_config = PMACConfig(ip="192.168.0.200")
     robot = PMACRobotController(pmac_config)
 
-    ik = build_ik(continuum_cfg)
-    tendon_mapper = ContinuumTendonMapper()
+    ik = build_continuum_ik(continuum_cfg)
+    tendon_mapper = build_tendon_mapper(continuum_cfg)
     axis_mapper = ContinuumAxisMapper(
         pulses_per_rad=pmac_config.pulses_per_rad,
         pulses_per_meter=pmac_config.pulses_per_meter,

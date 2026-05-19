@@ -34,6 +34,12 @@ class ContinuumIKConfig:
 
 
 @dataclass(frozen=True)
+class ContinuumActuationConfig:
+    hole_radius_m: float
+    spool_diameter_m: float
+
+
+@dataclass(frozen=True)
 class ContinuumControlConfig:
     update_hz: int
     pvt_velocity_from_diff: bool
@@ -43,4 +49,5 @@ class ContinuumControlConfig:
 class ContinuumConfig:
     geometry: ContinuumGeometryConfig
     ik: ContinuumIKConfig
+    actuation: ContinuumActuationConfig
     control: ContinuumControlConfig

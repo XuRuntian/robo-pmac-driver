@@ -2,6 +2,7 @@ from pathlib import Path
 import yaml
 
 from .config import (
+    ContinuumActuationConfig,
     ContinuumConfig,
     ContinuumControlConfig,
     ContinuumGeometryConfig,
@@ -21,5 +22,6 @@ def load_continuum_config(path: str | Path = "config/continuum.yaml") -> Continu
             }
         ),
         ik=ContinuumIKConfig(**raw["ik"]),
+        actuation=ContinuumActuationConfig(**raw["actuation"]),
         control=ContinuumControlConfig(**raw["control"]),
     )

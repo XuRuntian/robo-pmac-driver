@@ -19,6 +19,10 @@ ik:
   ori_tol_rad: 0.0005
   max_inner_steps: 5
 
+actuation:
+  hole_radius_m: 0.003
+  spool_diameter_m: 0.012
+
 control:
   update_hz: 50
   pvt_velocity_from_diff: true

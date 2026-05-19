@@ -22,7 +22,7 @@ class PMACConfig:
     zero_offsets: List[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
     
     # --- 轴映射关系 (逻辑算法 -> 物理电机) ---
-    # 逻辑轴顺序为: [a_x, a_y, c_x, c_y, d]
+    # 逻辑轴顺序为: [alpha1, alpha2, alpha3, alpha4, d]
     # 如果物理接线变了，只需改下面这两个列表
     axis_order: List[int] = field(default_factory=lambda: [1, 0, 2, 3, 4])
     axis_signs: List[int] = field(default_factory=lambda: [1, -1, -1, -1, 1]) # 暂定为符号给到调换之前
