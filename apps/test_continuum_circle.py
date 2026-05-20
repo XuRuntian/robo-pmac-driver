@@ -19,6 +19,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--radius", type=float, default=0.01, help="Circle radius in meters.")
     parser.add_argument("--freq", type=float, default=0.03, help="Circle frequency in Hz.")
     parser.add_argument("--duration", type=float, default=60.0, help="Run time in seconds.")
+    parser.add_argument(
+        "--ramp-time",
+        type=float,
+        default=3.0,
+        help="Seconds used to ramp the circle radius from zero to --radius.",
+    )
     parser.add_argument("--plane", choices=("xy", "xz", "yz"), default="xz")
     parser.add_argument("--execute", action="store_true", help="Send commands to PMAC. Without this flag, only dry-run.")
     return parser.parse_args()
@@ -78,17 +84,20 @@ def main() -> None:
             max_inner_steps=continuum_cfg.ik.max_inner_steps,
         )
 
-        start_time = time.perf_counter()
-        next_call = start_time
+        virtual_time = 0.0
+        next_call = time.perf_counter()
 
         while True:
-            now = time.perf_counter()
-            t = now - start_time
-            if t >= args.duration:
+            if virtual_time >= args.duration:
                 break
 
-            phase = 2.0 * math.pi * args.freq * t
-            p_goal = circle_goal(center_p, args.radius, phase, args.plane)
+            ramp_ratio = 1.0
+            if args.ramp_time > 0.0:
+                ramp_ratio = min(1.0, virtual_time / args.ramp_time)
+
+            effective_radius = args.radius * ramp_ratio
+            phase = 2.0 * math.pi * args.freq * virtual_time
+            p_goal = circle_goal(center_p, effective_radius, phase, args.plane)
             command = mapper.build_command(p_goal)
 
             if robot is not None:
@@ -98,14 +107,16 @@ def main() -> None:
                     move_time=move_time_ms,
                 )
 
-            if int(t * update_hz) % max(1, update_hz // 2) == 0:
+            if int(virtual_time * update_hz) % max(1, update_hz // 2) == 0:
                 print(
-                    f"t={t:.2f}s | plane={args.plane} | "
+                    f"t={virtual_time:.2f}s | plane={args.plane} | "
+                    f"r={effective_radius:.4f} | "
                     f"p_goal={np.round(command.p_goal, 4)} | "
                     f"err={np.linalg.norm(command.ik_result.error):.5f} | "
                     f"pulses={command.target_pulses}"
                 )
 
+            virtual_time += update_interval
             next_call += update_interval
             sleep_time = next_call - time.perf_counter()
             if sleep_time > 0:

@@ -15,9 +15,15 @@ from pmac_sdk.core.config_model import PMACConfig
 class OmegaCartesianMapper:
     """Convert Omega pose samples into continuum tip position goals."""
 
-    def __init__(self, center_p: np.ndarray, scale_xyz: tuple[float, float, float]) -> None:
+    def __init__(
+        self,
+        center_p: np.ndarray,
+        scale_xyz: tuple[float, float, float],
+        max_delta_xyz: tuple[float, float, float],
+    ) -> None:
         self.center_p = np.asarray(center_p, dtype=float)
         self.scale = np.asarray(scale_xyz, dtype=float)
+        self.max_delta = np.asarray(max_delta_xyz, dtype=float)
         self._omega_zero: np.ndarray | None = None
 
     def calibrate_zero(self, haptic_state: HapticState) -> None:
@@ -28,6 +34,7 @@ class OmegaCartesianMapper:
             self.calibrate_zero(haptic_state)
 
         delta = (np.asarray(haptic_state.pos, dtype=float) - self._omega_zero) * self.scale
+        delta = np.clip(delta, -self.max_delta, self.max_delta)
         return self.center_p + delta
 
 
@@ -38,6 +45,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scale-x", type=float, default=0.6, help="Robot meters per Omega meter on X.")
     parser.add_argument("--scale-y", type=float, default=0.6, help="Robot meters per Omega meter on Y.")
     parser.add_argument("--scale-z", type=float, default=0.6, help="Robot meters per Omega meter on Z.")
+    parser.add_argument("--max-delta-x", type=float, default=0.01, help="Clamp robot X offset from neutral, in meters.")
+    parser.add_argument("--max-delta-y", type=float, default=0.01, help="Clamp robot Y offset from neutral, in meters.")
+    parser.add_argument("--max-delta-z", type=float, default=0.01, help="Clamp robot Z offset from neutral, in meters.")
+    parser.add_argument(
+        "--lock-linear-axis",
+        action="store_true",
+        help="Keep the logical d/physical linear axis at its startup position for bend-only tests.",
+    )
     parser.add_argument("--duration", type=float, default=0.0, help="0 means run until Ctrl+C.")
     parser.add_argument("--execute", action="store_true", help="Send commands to PMAC. Without this flag, only dry-run.")
     return parser.parse_args()
@@ -87,8 +102,10 @@ def main() -> None:
         omega_mapper = OmegaCartesianMapper(
             center_p=center_p,
             scale_xyz=(args.scale_x, args.scale_y, args.scale_z),
+            max_delta_xyz=(args.max_delta_x, args.max_delta_y, args.max_delta_z),
         )
         omega_mapper.calibrate_zero(omega.get_state())
+        linear_physical_idx = axis_mapper.axis_order[4]
 
         start_time = time.perf_counter()
         next_call = start_time
@@ -103,6 +120,11 @@ def main() -> None:
             haptic_state = omega.get_state()
             p_goal = omega_mapper.solve(haptic_state)
             command = pvt_mapper.build_command(p_goal)
+            if args.lock_linear_axis:
+                command.axis_targets[4] = 0.0
+                command.target_pulses[linear_physical_idx] = base_pulses[linear_physical_idx]
+                command.velocities[linear_physical_idx] = 0.0
+                ik.u[0] = 0.0
 
             if robot is not None:
                 robot.move_pvt_stream(
@@ -115,7 +137,8 @@ def main() -> None:
                 print(
                     f"t={t:.2f}s | omega={np.round(haptic_state.pos, 4)} | "
                     f"p_goal={np.round(command.p_goal, 4)} | "
-                    f"err={np.linalg.norm(command.ik_result.error):.5f}"
+                    f"err={np.linalg.norm(command.ik_result.error):.5f} | "
+                    f"dpulses={(np.asarray(command.target_pulses) - np.asarray(base_pulses)).tolist()}"
                 )
 
             next_call += update_interval
