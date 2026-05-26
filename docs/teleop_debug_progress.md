@@ -212,6 +212,63 @@ PMAC may still have:
 
 Before continuing after a fatal error, reset PMAC state fully rather than only changing the Python command.
 
+## Omega Axis-5 Amp Fault Update
+
+Observed during Omega testing:
+
+```bash
+python apps/test_omega_continuum_teleop.py --execute --duration 180 --scale-x 0.25 --scale-y 0.08 --scale-z 0.25 --max-delta-x 0.03 --max-delta-y 0.005 --max-delta-z 0.03
+```
+
+If the Omega master is moved aggressively, physical axis 5 can enter amp fault. Restarting Python alone may still show amp fault because the drive/PMAC state is latched and old PVT/PLC state may remain active.
+
+The likely cause is not `--max-delta-y` alone. `--max-delta-y` limits total Y travel, but it does not limit how fast a large master-hand motion can demand that travel. Axis 5 is especially sensitive because logical `d` maps strongly to world Y.
+
+`apps/test_omega_continuum_teleop.py` now includes extra input protection:
+
+- `--deadband`: ignore small Omega noise in robot-space meters.
+- `--smooth-alpha`: low-pass filter the Omega target.
+- `--max-speed-x/y/z`: Cartesian target slew-rate limits.
+- A physical pulse-step clamp for axis 5 derived from `--max-speed-y`.
+- `--feedback-hz` and `--log-csv`: sample PMAC position feedback and log target/actual/error pulses.
+
+After an amp fault, recover PMAC before rerunning teleop. The intended manual/gpascii recovery shape is:
+
+```text
+disable plc 1,2,3
+&1A
+#1..5k
+PVT_WriteIdx=0
+PVT_ReadIdx=0
+PVT_Count=0
+Sys.ModbusServerBuffer[400]=0
+Sys.ModbusServerBuffer[401]=0
+Sys.ModbusServerBuffer[402]=0
+Sys.ModbusServerBuffer[403]=0
+Sys.ModbusServerBuffer[440]=0
+Sys.ModbusServerBuffer[441]=0
+Sys.ModbusServerBuffer[442]=0
+Sys.ModbusServerBuffer[443]=0
+#1..5j/
+&1 #1->X #2->Y #3->Z #4->A #5->B
+&1 b1r
+enable plc 1,2,3
+```
+
+If `#1..5j/` cannot clear the drive fault, clear/power-cycle the axis-5 amplifier fault from the PMAC/drive side before starting Python again.
+
+Recommended next Omega retest after recovery:
+
+```bash
+python apps/test_omega_continuum_teleop.py --execute --duration 120 --scale-x 0.25 --scale-y 0.08 --scale-z 0.25 --max-delta-x 0.03 --max-delta-y 0.005 --max-delta-z 0.03 --max-speed-x 0.02 --max-speed-y 0.0015 --max-speed-z 0.02 --deadband 0.0003 --smooth-alpha 0.25
+```
+
+For tracking analysis, add CSV logging:
+
+```bash
+python apps/test_omega_continuum_teleop.py --execute --duration 60 --scale-x 0.25 --scale-y 0.08 --scale-z 0.25 --max-delta-x 0.03 --max-delta-y 0.01 --max-delta-z 0.03 --max-speed-x 0.02 --max-speed-y 0.0015 --max-speed-z 0.02 --deadband 0.0003 --smooth-alpha 0.25 --feedback-hz 10 --log-csv logs/omega_axis5_tracking.csv
+```
+
 ## Notes For The Next Window
 
 Start by reading this file and the current scripts:

@@ -34,7 +34,7 @@ class PMACRobotController:
         
         print(f"✅ 系统就绪，基准位置已锁定: {self.base_positions}")
         
-    def safe_boot_and_home(self):
+    def safe_boot_and_home(self, use_plc4_reset: bool = True):
         """
         安全的整合启动序列：
         1. SSH 电机上电
@@ -45,7 +45,10 @@ class PMACRobotController:
         import time
         
         # 1. 硬件准备
-        self.hw_manager.prepare_motors()
+        if use_plc4_reset:
+            self.hw_manager.reset_with_plc4()
+        else:
+            self.hw_manager.prepare_motors()
         time.sleep(1.0)
         
         # 2. 连接 Modbus，并读取电机的真实物理位置
@@ -61,7 +64,8 @@ class PMACRobotController:
         print(f"✅ 缓冲区已同步至安全位置: {current_positions}")
         
         # 4. 启动 PMAC 内的运动程序
-        self.hw_manager.start_prog()
+        if not use_plc4_reset:
+            self.hw_manager.start_prog()
     def move_joints(self, target_pulses: list, move_time: int = 500, accel: int = 100, scurve: int = 50):
         """核心底层：只下发原版的地址 0 和 地址 100，并新增动态时间参数"""
         self.modbus.write_int32_array(address=0, values=target_pulses)
@@ -89,6 +93,9 @@ class PMACRobotController:
         self.config.zero_offsets = current_pos
         self.base_positions = current_pos
         print(f"✅ 已标定绝对零点偏置: {self.config.zero_offsets}")
+
+    def read_positions(self) -> list[int]:
+        return self.modbus.read_int32_array(address=10, count=5)
 
     def move_to_absolute_angle(self, joint_idx: int, absolute_angle: float, move_time: int = 500, accel: int = 100, scurve: int = 50):
         """绝对控制：增加【方向系数】"""

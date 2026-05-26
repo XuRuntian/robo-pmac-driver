@@ -51,6 +51,12 @@ class PMACHardwareManager:
             ("⚡ 正在执行电机上电 (#1..5j/)...", "#1..5j/")
         ], delay=0.5)
 
+    def reset_with_plc4(self):
+        print("[Stage 1] Triggering PMAC SystemInit.Reset through PLC 4")
+        self.send_gpascii_commands([
+            ("Enable one-shot reset PLC 4", "enable plc 4"),
+        ], delay=2.0)
+
     def start_prog(self):
         print(f"🚀 [阶段3] 启动多轴协同程序")
         self.send_gpascii_commands([
