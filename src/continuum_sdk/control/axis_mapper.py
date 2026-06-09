@@ -20,6 +20,21 @@ class ContinuumAxisMapper:
             
         return out
 
+    def pulses_to_logical(self, base_pulses: list[int], physical_pulses: list[int]) -> list[float]:
+        """Convert physical PMAC feedback to [alpha1..alpha4, d] in rad and meters."""
+        if len(base_pulses) != 5 or len(physical_pulses) != 5:
+            raise ValueError("base_pulses and physical_pulses must each contain five values.")
+
+        out = [0.0] * 5
+        for logical_idx in range(5):
+            physical_idx = self.axis_order[logical_idx]
+            sign = self.axis_signs[logical_idx]
+            scale = self.pulses_per_rad if logical_idx < 4 else self.pulses_per_meter
+            out[logical_idx] = (
+                (physical_pulses[physical_idx] - base_pulses[physical_idx]) / (sign * scale)
+            )
+        return out
+
     def logical_velocity_to_pulses_per_ms(self, logical_velocity: list[float]) -> list[float]:
         out = [0.0] * 5
 

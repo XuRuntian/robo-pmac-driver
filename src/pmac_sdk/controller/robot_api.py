@@ -34,7 +34,7 @@ class PMACRobotController:
         
         print(f"✅ 系统就绪，基准位置已锁定: {self.base_positions}")
         
-    def safe_boot_and_home(self, use_plc4_reset: bool = True):
+    def safe_boot_and_home(self, use_plc4_reset: bool = False):
         """
         安全的整合启动序列：
         1. SSH 电机上电
