@@ -121,7 +121,7 @@ def main():
         
         # 3. 遥操作主循环 (固定频率 20Hz)
        # 3. 遥操作主循环 (固定频率 20Hz)
-        update_interval = 0.01
+        update_interval = 0.03
         
         # [Debug 专用变量]
         loop_count = 0

@@ -15,20 +15,6 @@ class PMACRobotController:
         """执行硬件级别的上电和复位"""
         self.hw_manager.init_motors()
 
-    # --- 新增接口：专门用于直线单元(增量轴)设零 ---
-    def set_linear_axis_zero(self):
-        """
-        【手动软回零】：要求在调用前，直线单元已被推到物理极限位。
-        通过 SSH 直接下发 PMAC #5hmz 指令就地设零。
-        """
-        print("🏠 正在将直线单元(电机 5)当前物理位置设为绝对零点...")
-        self.hw_manager.send_gpascii_commands([
-            ("🛑 停用 PLC 2 以防干扰...", "disable plc 2"),
-            ("📍 电机 5 就地设零...", "#5hmz"),
-            ("🔄 重新启用 PLC 2...", "enable plc 2")
-        ], delay=0.5)
-        print("✅ 直线单元设零完成！")
-
     def connect_and_home(self):
         if not self.modbus.connect():
             raise ConnectionError("❌ 无法连接到 PMAC，请检查网络设置。")
@@ -47,7 +33,39 @@ class PMACRobotController:
         self.modbus.write_int32_array(address=0, values=self.base_positions)
         
         print(f"✅ 系统就绪，基准位置已锁定: {self.base_positions}")
-
+        
+    def safe_boot_and_home(self, use_plc4_reset: bool = True):
+        """
+        安全的整合启动序列：
+        1. SSH 电机上电
+        2. Modbus 连接获取真实位置
+        3. 清洗 PVT 缓冲区（防止暴走）
+        4. 启动 PMAC 运动程序
+        """
+        import time
+        
+        # 1. 硬件准备
+        if use_plc4_reset:
+            self.hw_manager.reset_with_plc4()
+        else:
+            self.hw_manager.prepare_motors()
+        time.sleep(1.0)
+        
+        # 2. 连接 Modbus，并读取电机的真实物理位置
+        # 注意：这里调用的是下面那个底层的 connect_and_home 函数
+        self.connect_and_home() 
+        current_positions = self.base_positions.copy()
+        
+        # 3. 清洗 Modbus 缓冲区
+        print("🧽 [阶段2] 正在清洗 PVT 数据缓冲区...")
+        self.modbus.write_int32_array(address=0, values=current_positions)
+        self.modbus.write_int32_array(address=50, values=[0, 0, 0, 0, 0])
+        self.modbus.write_int32_array(address=200, values=[0])
+        print(f"✅ 缓冲区已同步至安全位置: {current_positions}")
+        
+        # 4. 启动 PMAC 内的运动程序
+        if not use_plc4_reset:
+            self.hw_manager.start_prog()
     def move_joints(self, target_pulses: list, move_time: int = 500, accel: int = 100, scurve: int = 50):
         """核心底层：只下发原版的地址 0 和 地址 100，并新增动态时间参数"""
         self.modbus.write_int32_array(address=0, values=target_pulses)
@@ -76,6 +94,9 @@ class PMACRobotController:
         self.base_positions = current_pos
         print(f"✅ 已标定绝对零点偏置: {self.config.zero_offsets}")
 
+    def read_positions(self) -> list[int]:
+        return self.modbus.read_int32_array(address=10, count=5)
+
     def move_to_absolute_angle(self, joint_idx: int, absolute_angle: float, move_time: int = 500, accel: int = 100, scurve: int = 50):
         """绝对控制：增加【方向系数】"""
         current_pos = self.modbus.read_int32_array(address=10, count=5)
@@ -92,5 +113,57 @@ class PMACRobotController:
         
         self.move_joints(targets, move_time=move_time, accel=accel, scurve=scurve)
         
+    def move_pvt_stream(self, target_pulses: list, velocities: list, move_time: float):
+        """
+        专门适配 PVT 环形缓冲区的流式下发接口
+        :param target_pulses: 5个轴的目标绝对脉冲列表
+        :param velocities: 5个轴的目标瞬时速度 (脉冲/ms)
+        :param move_time: 本段轨迹执行的时间 (ms)
+        """
+        pos_scale = 1.0 # 必须与 PMAC global definitions.pmh 一致[cite: 6]
+        vel_time_scale = 10000.0
+        # 1. 缩放并转换数据为 32位整数
+        scaled_pos = [int(p * pos_scale) for p in target_pulses]
+        scaled_vel = [int(v * vel_time_scale) for v in velocities]
+        scaled_time = int(move_time * vel_time_scale)
+        
+        # 2. 写入位置 (地址 0, 4, 8, 12, 16)[cite: 4]
+        self.modbus.write_int32_array(address=0, values=scaled_pos)
+        
+        # 3. 写入时间 (地址 40)[cite: 4]
+        self.modbus.write_int32_array(address=40, values=[scaled_time])
+        
+        # 4. 写入速度 (地址 50, 54, 58, 62, 66)[cite: 4]
+        self.modbus.write_int32_array(address=50, values=scaled_vel)
+        
+        # 5. 发送触发信号 (地址 200)[cite: 4]
+        # 注意：PMAC PLC 2 处理完后会自动将其置零[cite: 4]
+        self.modbus.write_int32_array(address=200, values=[1])
+    
     def close(self):
         self.modbus.disconnect()
+        
+class VisualHomingManager:
+    """视觉引导回零托管类"""
+    def __init__(self, modbus_client):
+        self.modbus = modbus_client
+        self.CMD_ADDRESS = 220
+
+    def start_homing(self):
+        """下发指令 1：启动回零 (PLC将执行 #5j-)"""
+        self.modbus.write_int32_array(address=self.CMD_ADDRESS, values=[1])
+
+    def stop_movement(self):
+        """下发指令 2：强制停止 (PLC将执行 #5k)"""
+        self.modbus.write_int32_array(address=self.CMD_ADDRESS, values=[2])
+
+    def confirm_and_set_zero(self):
+        """下发指令 3：确认停稳并设零 (PLC将执行 #5hmz)"""
+        self.modbus.write_int32_array(address=self.CMD_ADDRESS, values=[3])
+
+    def read_status(self):
+        """读取底层状态 (状态, 停止原因, 电流, 跟随误差)"""
+        # PLC 中我们存放在 444, 446, 448, 450
+        state_reason = self.modbus.read_int32_array(address=444, count=2)
+        iq_fe = self.modbus.read_int32_array(address=448, count=2)
+        return state_reason[0], state_reason[1], iq_fe[0], iq_fe[1]

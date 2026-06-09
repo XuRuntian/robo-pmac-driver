@@ -38,7 +38,29 @@ class PMACHardwareManager:
     def init_motors(self):
         print(f"🔌 [系统初始化] 正在通过 SSH 唤醒 PMAC ({self.ip})...")
         self.send_gpascii_commands([
-            ("🛑 正在停用 PLC 2...", "disable plc 2"),
+            ("🛑 正在停用 PLC 2 和 PLC 3...", "disable plc 2,3"),
             ("⚡ 正在执行电机上电 (#1..5k)...", "#1..5j/"),
-            ("🔄 正在重新启用 PLC 2...", "enable plc 2")
+            ("🔄 正在重新启用 PLC 2 和 PLC 3...", "enable plc 2,3")
         ])
+    def prepare_motors(self):
+        print(f"🔌 [阶段1] 电机上电准备")
+        self.send_gpascii_commands([
+            ("🛑 正在停用 PLC 2 和 PLC 3...", "disable plc 2,3"),
+            ("🧹 清除坐标系错误状态...", "&1A"), 
+            ("电机清除错误", "#1..5k/"),
+            ("⚡ 正在执行电机上电 (#1..5j/)...", "#1..5j/")
+        ], delay=0.5)
+
+    def reset_with_plc4(self):
+        print("[Stage 1] Triggering PMAC SystemInit.Reset through PLC 4")
+        self.send_gpascii_commands([
+            ("Enable one-shot reset PLC 4", "enable plc 4"),
+        ], delay=2.0)
+
+    def start_prog(self):
+        print(f"🚀 [阶段3] 启动多轴协同程序")
+        self.send_gpascii_commands([
+            ("映射轴", "&1 #1->X #2->Y #3->Z #4->A #5->B"),
+            ("🏃 启动运动程序...", "&1 b1r"),       
+            ("🔄 正在重新启用 PLC 2 和 PLC 3...", "enable plc 2,3")
+        ], delay=0.5)
