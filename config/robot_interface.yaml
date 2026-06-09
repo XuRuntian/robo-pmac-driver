@@ -1,0 +1,33 @@
+# Framework-independent robot interface contract used before the LeRobot adapter.
+control_hz: 50
+
+# Robot XYZ sources from Omega axes:
+# robot X <- Omega Z, robot Y/linear <- Omega X, robot Z <- Omega Y.
+omega_map: zxy
+
+initial_position:
+  # capture_current preserves the current behavior: startup feedback becomes
+  # the logical actuator zero for this run.
+  #
+  # For reproducible datasets, switch to configured_reference after the
+  # reference position and tolerances have been physically validated.
+  mode: capture_current
+  reference_pulses: [63037980, 503187440, -141762994, 404354914, 18]
+  reject_all_zero_feedback: true
+  require_near_reference: false
+  tolerance_pulses: null
+
+command:
+  # Tip translation offset from the configured neutral tip pose, robot XYZ.
+  max_delta_m: [0.03, 0.01, 0.03]
+  max_speed_m_s: [0.08, 0.003, 0.08]
+
+  # Rotation uses a rotation vector [rx, ry, rz] in radians.
+  # The interface reserves these fields, but the current tested controller is
+  # position-only and must reject non-zero rotation commands.
+  orientation_enabled: false
+  max_rotation_delta_rad: [0.0, 0.0, 0.0]
+  max_angular_speed_rad_s: [0.0, 0.0, 0.0]
+
+  deadband_m: 0.0003
+  smooth_alpha: 0.8

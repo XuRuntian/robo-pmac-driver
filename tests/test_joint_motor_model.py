@@ -111,3 +111,19 @@ def test_pvt_mapper_builds_five_axis_command() -> None:
     assert len(command.target_pulses) == 5
     assert len(command.velocities) == 5
     assert all(isinstance(value, int) for value in command.target_pulses)
+
+
+def test_axis_mapper_feedback_roundtrip() -> None:
+    mapper = ContinuumAxisMapper(
+        pulses_per_rad=1000.0,
+        pulses_per_meter=100000.0,
+        axis_order=[1, 0, 2, 3, 4],
+        axis_signs=[1, -1, -1, -1, 1],
+    )
+    base = [100, 200, 300, 400, 500]
+    logical = [0.2, -0.3, 0.4, -0.5, 0.006]
+
+    pulses = mapper.logical_to_pulses(base, logical)
+    recovered = mapper.pulses_to_logical(base, pulses)
+
+    assert np.allclose(recovered, logical, atol=1.0 / 100000.0)
