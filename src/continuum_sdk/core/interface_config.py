@@ -124,6 +124,12 @@ def load_robot_interface_config(
         raise ValueError("Cartesian translation and rotation limits must contain three values.")
     if not 0.0 <= command.smooth_alpha <= 1.0:
         raise ValueError("smooth_alpha must be within [0, 1].")
+    if command.deadband_m < 0.0:
+        raise ValueError("deadband_m must be non-negative.")
+    if any(value < 0.0 for value in command.max_delta_m):
+        raise ValueError("max_delta_m values must be non-negative.")
+    if any(value < 0.0 for value in command.max_speed_m_s):
+        raise ValueError("max_speed_m_s values must be non-negative.")
 
     omega_map = str(raw["omega_map"]).lower()
     if sorted(omega_map) != ["x", "y", "z"]:

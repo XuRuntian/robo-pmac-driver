@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lerobot_teleoperator_omega_continuum"
+version = "0.1.0"
+description = "Force Dimension Omega teleoperator plugin for the PMAC continuum robot"
+requires-python = ">=3.12"
+dependencies = [
+    "forcedimension-core>=1.0.0",
+    "lerobot>=0.5.2",
+    "numpy>=2.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}

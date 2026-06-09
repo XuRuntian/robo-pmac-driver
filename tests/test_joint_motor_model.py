@@ -5,9 +5,16 @@ import numpy as np
 from continuum_sdk.control.tendon_mapper import ContinuumTendonMapper
 from continuum_sdk.control.axis_mapper import ContinuumAxisMapper
 from continuum_sdk.control.pvt_mapper import ContinuumPVTMapper
+from continuum_sdk.control.tip_command_filter import TipCommandFilter
 from continuum_sdk.core.factory import build_continuum_ik, build_tendon_mapper
 from continuum_sdk.core.config_loader import load_continuum_config
+from continuum_sdk.core.interface_config import CartesianCommandConfig
 from continuum_sdk.kinematics.joint_motor_model import JointSpace, TDRCJointMotorModel, angle_diff
+from continuum_sdk.transport.zmq_protocol import (
+    build_command_message,
+    build_state_message,
+    parse_control_message,
+)
 
 
 R_HOLE = 0.003
@@ -127,3 +134,93 @@ def test_axis_mapper_feedback_roundtrip() -> None:
     recovered = mapper.pulses_to_logical(base, pulses)
 
     assert np.allclose(recovered, logical, atol=1.0 / 100000.0)
+
+
+def test_tip_command_filter_limits_speed_and_holds() -> None:
+    command_config = CartesianCommandConfig(
+        max_delta_m=(0.03, 0.01, 0.03),
+        max_speed_m_s=(0.08, 0.003, 0.08),
+        orientation_enabled=False,
+        max_rotation_delta_rad=(0.0, 0.0, 0.0),
+        max_angular_speed_rad_s=(0.0, 0.0, 0.0),
+        deadband_m=0.0003,
+        smooth_alpha=1.0,
+    )
+    command_filter = TipCommandFilter(command_config, update_interval_s=0.02)
+    command_filter.set_command(
+        {
+            "tip_delta_x": 0.03,
+            "tip_delta_y": 0.01,
+            "tip_delta_z": -0.03,
+            "tip_delta_rx": 0.0,
+            "tip_delta_ry": 0.0,
+            "tip_delta_rz": 0.0,
+        }
+    )
+
+    first = command_filter.step()
+    assert np.allclose(first, [0.0016, 0.00006, -0.0016])
+
+    command_filter.hold()
+    assert np.allclose(command_filter.step(), first)
+
+
+def test_tip_command_filter_rejects_disabled_rotation() -> None:
+    cfg = load_continuum_config("config/continuum.yaml")
+    command_config = CartesianCommandConfig(
+        max_delta_m=(0.03, 0.01, 0.03),
+        max_speed_m_s=(0.08, 0.003, 0.08),
+        orientation_enabled=False,
+        max_rotation_delta_rad=(0.0, 0.0, 0.0),
+        max_angular_speed_rad_s=(0.0, 0.0, 0.0),
+        deadband_m=0.0003,
+        smooth_alpha=0.8,
+    )
+    command_filter = TipCommandFilter(
+        command_config,
+        update_interval_s=1.0 / cfg.control.update_hz,
+    )
+
+    try:
+        command_filter.set_command(
+            {
+                "tip_delta_x": 0.0,
+                "tip_delta_y": 0.0,
+                "tip_delta_z": 0.0,
+                "tip_delta_rx": 0.1,
+                "tip_delta_ry": 0.0,
+                "tip_delta_rz": 0.0,
+            }
+        )
+    except ValueError as exc:
+        assert "rotation" in str(exc)
+    else:
+        raise AssertionError("A disabled rotation command must be rejected.")
+
+
+def test_zmq_protocol_roundtrip() -> None:
+    action = {
+        "tip_delta_x": 0.001,
+        "tip_delta_y": 0.002,
+        "tip_delta_z": 0.003,
+        "tip_delta_rx": 0.0,
+        "tip_delta_ry": 0.0,
+        "tip_delta_rz": 0.0,
+    }
+    kind, parsed = parse_control_message(build_command_message(3, action))
+    assert kind == "command"
+    assert parsed == action
+
+    state_message = build_state_message(
+        4,
+        {
+            "axis_1_pos": 0.1,
+            "axis_2_pos": 0.2,
+            "axis_3_pos": 0.3,
+            "axis_4_pos": 0.4,
+            "axis_5_pos": 0.005,
+        },
+        status={"watchdog_holding": False},
+        applied_action=action,
+    )
+    assert state_message["state"]["axis_5_pos"] == 0.005
