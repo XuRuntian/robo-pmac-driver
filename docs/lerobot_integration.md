@@ -113,6 +113,10 @@ lerobot-record `
   --teleop.scale_y=0.08 `
   --teleop.scale_z=0.25 `
   --teleop.omega_map=zxy `
+  --teleop.max_rotation_x=0.15 `
+  --teleop.max_rotation_y=0.15 `
+  --teleop.max_rotation_z=0.0 `
+  --teleop.rotation_deadband_rad=0.005 `
   --dataset.repo_id=local/continuum_omega_test `
   --dataset.root=D:/project/lerobot_data/continuum_omega_test `
   --dataset.single_task="Continuum robot Omega teleoperation test" `
@@ -155,7 +159,8 @@ lerobot-record `
   --play_sounds=false
 ```
 
-The recorded action is the six-field Cartesian tip offset. The recorded robot
+The recorded action is the six-field Cartesian tip offset: translation in
+meters and a startup-relative rotation vector in radians. The recorded robot
 state contains axes 1-4 in radians and axis 5 in meters.
 
 The ZMQ PUSH/PULL transport intentionally supports one active LeRobot robot

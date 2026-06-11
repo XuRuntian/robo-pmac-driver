@@ -130,6 +130,17 @@ def load_robot_interface_config(
         raise ValueError("max_delta_m values must be non-negative.")
     if any(value < 0.0 for value in command.max_speed_m_s):
         raise ValueError("max_speed_m_s values must be non-negative.")
+    if any(value < 0.0 for value in command.max_rotation_delta_rad):
+        raise ValueError("max_rotation_delta_rad values must be non-negative.")
+    if any(value < 0.0 for value in command.max_angular_speed_rad_s):
+        raise ValueError("max_angular_speed_rad_s values must be non-negative.")
+    if command.orientation_enabled and (
+        not any(command.max_rotation_delta_rad)
+        or not any(command.max_angular_speed_rad_s)
+    ):
+        raise ValueError(
+            "Enabled orientation control requires non-zero rotation and angular speed limits."
+        )
 
     omega_map = str(raw["omega_map"]).lower()
     if sorted(omega_map) != ["x", "y", "z"]:

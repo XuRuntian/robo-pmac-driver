@@ -13,6 +13,7 @@ from continuum_sdk.control.tip_command_filter import TipCommandFilter
 from continuum_sdk.core.config_loader import load_continuum_config
 from continuum_sdk.core.factory import build_continuum_ik, build_tendon_mapper
 from continuum_sdk.core.interface_config import load_robot_interface_config
+from continuum_sdk.kinematics.dls_ik import rotvec_to_matrix
 from continuum_sdk.transport.zmq_protocol import (
     build_state_message,
     parse_control_message,
@@ -96,6 +97,8 @@ def main() -> None:
     feedback_interval = 1.0 / args.feedback_hz
 
     ik = build_continuum_ik(continuum_cfg)
+    if interface_cfg.command.orientation_enabled:
+        ik.task_mode = "pos_z"
     tendon_mapper = build_tendon_mapper(continuum_cfg)
     axis_mapper = ContinuumAxisMapper(
         pulses_per_rad=pmac_cfg.pulses_per_rad,
@@ -103,7 +106,7 @@ def main() -> None:
         axis_order=pmac_cfg.axis_order,
         axis_signs=pmac_cfg.axis_signs,
     )
-    center_p, _ = ik.fk_tip()
+    center_p, center_r = ik.fk_tip()
 
     robot = PMACRobotController(pmac_cfg) if args.execute else None
     if robot is not None:
@@ -194,7 +197,16 @@ def main() -> None:
                 watchdog_holding = True
 
             applied_delta = command_filter.step()
-            pvt_command = pvt_mapper.build_command(center_p + applied_delta)
+            applied_rotation = command_filter.applied_rotation
+            r_goal = (
+                center_r @ rotvec_to_matrix(applied_rotation)
+                if interface_cfg.command.orientation_enabled
+                else None
+            )
+            pvt_command = pvt_mapper.build_command(
+                center_p + applied_delta,
+                z_goal=None if r_goal is None else r_goal[:, 2],
+            )
 
             linear_delta = (
                 pvt_command.target_pulses[linear_physical_idx]
@@ -228,6 +240,7 @@ def main() -> None:
                 feedback_pulses = list(pvt_command.target_pulses)
 
             state = _state_from_feedback(axis_mapper, base_pulses, feedback_pulses)
+            ik_error = pvt_command.ik_result.error
             status = {
                 "execute": args.execute,
                 "control_hz": update_hz,
@@ -238,7 +251,11 @@ def main() -> None:
                 "feedback_valid": feedback_valid,
                 "feedback_pulses": feedback_pulses,
                 "target_pulses": pvt_command.target_pulses,
-                "ik_error_m": float(np.linalg.norm(pvt_command.ik_result.error)),
+                "ik_error_m": float(np.linalg.norm(ik_error[:3])),
+                "ik_error_norm": float(np.linalg.norm(ik_error)),
+                "ik_orientation_error_weighted": (
+                    float(np.linalg.norm(ik_error[3:])) if ik_error.size > 3 else 0.0
+                ),
                 "rejected_commands": rejected_commands,
                 "last_command_error": last_command_error,
             }

@@ -9,6 +9,7 @@ from continuum_sdk.control.tip_command_filter import TipCommandFilter
 from continuum_sdk.core.factory import build_continuum_ik, build_tendon_mapper
 from continuum_sdk.core.config_loader import load_continuum_config
 from continuum_sdk.core.interface_config import CartesianCommandConfig
+from continuum_sdk.kinematics.dls_ik import rotvec_to_matrix
 from continuum_sdk.kinematics.joint_motor_model import JointSpace, TDRCJointMotorModel, angle_diff
 from continuum_sdk.transport.zmq_protocol import (
     build_command_message,
@@ -120,6 +121,23 @@ def test_pvt_mapper_builds_five_axis_command() -> None:
     assert all(isinstance(value, int) for value in command.target_pulses)
 
 
+def test_pos_z_ik_responds_to_tip_direction_command() -> None:
+    cfg = load_continuum_config("config/continuum.yaml")
+    ik = build_continuum_ik(cfg)
+    ik.task_mode = "pos_z"
+    center_p, center_r = ik.fk_tip()
+    goal_r = center_r @ rotvec_to_matrix(np.array([0.05, 0.0, 0.0]))
+
+    result = ik.solve(
+        p_goal=center_p,
+        z_goal=goal_r[:, 2],
+        max_steps=20,
+    )
+
+    assert np.linalg.norm(result.u) > 0.0
+    assert result.error.shape == (6,)
+
+
 def test_axis_mapper_feedback_roundtrip() -> None:
     mapper = ContinuumAxisMapper(
         pulses_per_rad=1000.0,
@@ -196,6 +214,36 @@ def test_tip_command_filter_rejects_disabled_rotation() -> None:
         assert "rotation" in str(exc)
     else:
         raise AssertionError("A disabled rotation command must be rejected.")
+
+
+def test_tip_command_filter_limits_rotation_speed_and_holds() -> None:
+    command_config = CartesianCommandConfig(
+        max_delta_m=(0.03, 0.01, 0.03),
+        max_speed_m_s=(0.08, 0.003, 0.08),
+        orientation_enabled=True,
+        max_rotation_delta_rad=(0.15, 0.15, 0.0),
+        max_angular_speed_rad_s=(0.3, 0.3, 0.0),
+        deadband_m=0.0003,
+        smooth_alpha=1.0,
+    )
+    command_filter = TipCommandFilter(command_config, update_interval_s=0.02)
+    command_filter.set_command(
+        {
+            "tip_delta_x": 0.0,
+            "tip_delta_y": 0.0,
+            "tip_delta_z": 0.0,
+            "tip_delta_rx": 0.3,
+            "tip_delta_ry": -0.1,
+            "tip_delta_rz": 0.05,
+        }
+    )
+
+    command_filter.step()
+    first_rotation = command_filter.applied_rotation
+    assert np.allclose(first_rotation, [0.006, -0.006, 0.0])
+    command_filter.hold()
+    command_filter.step()
+    assert np.allclose(command_filter.applied_rotation, first_rotation)
 
 
 def test_zmq_protocol_roundtrip() -> None:

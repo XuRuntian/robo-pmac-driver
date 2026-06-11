@@ -41,6 +41,32 @@ def so3_log_vec(r: np.ndarray) -> np.ndarray:
     return theta * np.array([s[2, 1], s[0, 2], s[1, 0]], dtype=float)
 
 
+def rotvec_to_matrix(rotvec: np.ndarray) -> np.ndarray:
+    """Convert a rotation vector into a 3x3 rotation matrix."""
+    vector = np.asarray(rotvec, dtype=float)
+    if vector.shape != (3,):
+        raise ValueError("rotvec must contain exactly three values")
+
+    theta = float(np.linalg.norm(vector))
+    if theta < 1e-12:
+        return np.eye(3, dtype=float)
+
+    axis = vector / theta
+    skew = np.array(
+        [
+            [0.0, -axis[2], axis[1]],
+            [axis[2], 0.0, -axis[0]],
+            [-axis[1], axis[0], 0.0],
+        ],
+        dtype=float,
+    )
+    return (
+        np.eye(3, dtype=float)
+        + np.sin(theta) * skew
+        + (1.0 - np.cos(theta)) * (skew @ skew)
+    )
+
+
 def safe_sinc(x: float) -> float:
     if abs(x) < 1e-6:
         x2 = x * x
@@ -193,7 +219,14 @@ class DLSIK:
         a = j @ j.T + (self.lmbda**2) * np.eye(j.shape[0])
         dqu = -self.alpha * (j.T @ np.linalg.solve(a, e))
 
-        dqu = np.clip(dqu, -self.max_du, self.max_du)
+        if self.task_mode != "position":
+            # Preserve the coupled DLS direction. Per-axis clipping can cancel
+            # the relative segment motion needed for orientation control.
+            step_ratio = float(np.max(np.abs(dqu) / self.max_du))
+            if step_ratio > 1.0:
+                dqu /= step_ratio
+        else:
+            dqu = np.clip(dqu, -self.max_du, self.max_du)
 
         err0 = float(np.linalg.norm(e))
         best_qu = qu.copy()

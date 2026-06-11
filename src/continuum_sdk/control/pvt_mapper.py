@@ -12,6 +12,8 @@ from continuum_sdk.kinematics.dls_ik import DLSIK, IKResult
 @dataclass(frozen=True)
 class ContinuumPVTCommand:
     p_goal: np.ndarray
+    r_goal: np.ndarray | None
+    z_goal: np.ndarray | None
     ik_result: IKResult
     axis_targets: list[float]
     target_pulses: list[int]
@@ -38,9 +40,18 @@ class ContinuumPVTMapper:
         self.max_inner_steps = int(max_inner_steps)
         self._prev_axis_targets: list[float] | None = None
 
-    def build_command(self, p_goal: np.ndarray) -> ContinuumPVTCommand:
+    def build_command(
+        self,
+        p_goal: np.ndarray,
+        r_goal: np.ndarray | None = None,
+        z_goal: np.ndarray | None = None,
+    ) -> ContinuumPVTCommand:
+        normalized_r_goal = None if r_goal is None else np.asarray(r_goal, dtype=float)
+        normalized_z_goal = None if z_goal is None else np.asarray(z_goal, dtype=float)
         result = self.ik.solve(
             p_goal=np.asarray(p_goal, dtype=float),
+            r_goal=normalized_r_goal,
+            z_goal=normalized_z_goal,
             max_steps=self.max_inner_steps,
         )
         axis_targets = self.tendon_mapper.to_axis_targets(result.u)
@@ -53,6 +64,8 @@ class ContinuumPVTMapper:
 
         return ContinuumPVTCommand(
             p_goal=np.asarray(p_goal, dtype=float),
+            r_goal=normalized_r_goal,
+            z_goal=normalized_z_goal,
             ik_result=result,
             axis_targets=axis_targets,
             target_pulses=target_pulses,

@@ -45,6 +45,17 @@ class OmegaContinuum(Teleoperator):
             max_delta_xyz=(config.max_delta_x, config.max_delta_y, config.max_delta_z),
             deadband_m=config.deadband_m,
             omega_map=config.omega_map,
+            rotation_scale_xyz=(
+                config.rotation_scale_x,
+                config.rotation_scale_y,
+                config.rotation_scale_z,
+            ),
+            max_rotation_xyz=(
+                config.max_rotation_x,
+                config.max_rotation_y,
+                config.max_rotation_z,
+            ),
+            rotation_deadband_rad=config.rotation_deadband_rad,
         )
 
     @property
@@ -74,7 +85,7 @@ class OmegaContinuum(Teleoperator):
             raise RuntimeError(f"{self} is already connected.")
 
         if self.config.simulate:
-            self._mapper.set_zero(np.zeros(3, dtype=float))
+            self._mapper.set_zero(np.zeros(3, dtype=float), np.eye(3, dtype=float))
             self._is_connected = True
             return
 
@@ -95,11 +106,20 @@ class OmegaContinuum(Teleoperator):
             self._drd.stop(True)
             self._is_connected = True
             zero_positions = []
+            zero_orientations = []
             for _ in range(self.config.zero_samples):
-                zero_positions.append(self._read_position())
+                position, orientation = self._read_pose()
+                zero_positions.append(position)
+                zero_orientations.append(orientation)
                 if self.config.zero_sample_period_s > 0.0:
                     time.sleep(self.config.zero_sample_period_s)
-            self._mapper.set_zero(np.mean(zero_positions, axis=0))
+            mean_orientation = np.mean(zero_orientations, axis=0)
+            u, _, vt = np.linalg.svd(mean_orientation)
+            zero_orientation = u @ vt
+            if np.linalg.det(zero_orientation) < 0.0:
+                u[:, -1] *= -1.0
+                zero_orientation = u @ vt
+            self._mapper.set_zero(np.mean(zero_positions, axis=0), zero_orientation)
         except Exception:
             try:
                 self._drd.stop(False)
@@ -109,21 +129,26 @@ class OmegaContinuum(Teleoperator):
                 self._is_connected = False
             raise
 
-    def _read_position(self) -> np.ndarray:
+    def _read_pose(self) -> tuple[np.ndarray, np.ndarray]:
         if self.config.simulate:
-            return np.zeros(3, dtype=float)
+            return np.zeros(3, dtype=float), np.eye(3, dtype=float)
 
         assert self._dhd is not None
         result = self._dhd.getPositionAndOrientationFrame(self._position, self._orientation)
         if isinstance(result, int) and result < 0:
             raise DeviceNotConnectedError("Failed to read the Force Dimension Omega pose.")
         self._dhd.getGripperAngleDeg(self._gripper)
-        return self._position.copy()
+        return self._position.copy(), self._orientation.copy()
+
+    def _read_position(self) -> np.ndarray:
+        position, _ = self._read_pose()
+        return position
 
     def get_action(self) -> RobotAction:
         if not self._is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
-        return self._mapper.map_position(self._read_position())
+        position, orientation = self._read_pose()
+        return self._mapper.map_pose(position, orientation)
 
     def send_feedback(self, feedback: dict[str, Any]) -> None:
         return None

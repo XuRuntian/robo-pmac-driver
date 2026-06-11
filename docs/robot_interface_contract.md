@@ -37,16 +37,14 @@ radians. A rotation vector is used instead of Euler angles to avoid Euler
 singularities and instead of a quaternion to avoid an extra normalization
 constraint.
 
-The current tested control path uses `task_mode: position`. Therefore:
+The ZMQ driver switches the IK task to `pos_z` when
+`orientation_enabled: true`. Translation and rotation are filtered
+independently using the configured linear and angular limits.
 
-- translation commands are supported;
-- the six rotation fields are part of the stable interface;
-- non-zero rotation commands must be rejected while
-  `orientation_enabled: false`;
-- rotation must not be silently ignored.
-
-When orientation control is validated, the controller can switch to `pos_z` or
-`pose` without changing this external command schema.
+The robot has five generalized coordinates, so it controls three-dimensional
+tip position plus the two-dimensional tip-axis direction. Independent roll
+about the tip axis (`rz`) is reserved in the interface but limited to zero by
+the current configuration.
 
 ## Robot State Output
 
@@ -106,8 +104,10 @@ The currently tested translation mapping is:
 
 `omega_map: zxy` means robot XYZ receives Omega ZXY.
 
-The Omega orientation-to-robot orientation frame mapping is not yet calibrated.
-It must be established experimentally before enabling rotation commands.
+Omega orientation is sampled at startup and converted into a relative rotation
+vector in the startup handle frame. Its components currently use the same
+`zxy` permutation as translation. Rotation direction and scale must be
+validated with small motions before increasing the configured limits.
 
 ## Initial Position
 
