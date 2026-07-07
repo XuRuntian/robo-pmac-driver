@@ -62,6 +62,8 @@ class ContinuumPMAC(Robot):
         self._command_sequence = 0
         self._last_state: dict[str, float] | None = None
         self._last_status: dict[str, Any] = {}
+        self._last_applied_action: dict[str, float] = dict.fromkeys(ACTION_FIELDS, 0.0)
+        self._action_offset: dict[str, float] = dict.fromkeys(ACTION_FIELDS, 0.0)
         self._last_state_received_at: float | None = None
 
     @property
@@ -133,6 +135,10 @@ class ContinuumPMAC(Robot):
                     camera.disconnect()
             self._close_sockets()
             raise
+        if self.config.preserve_applied_action_on_connect:
+            self._action_offset = dict(self._last_applied_action)
+        else:
+            self._action_offset = dict.fromkeys(ACTION_FIELDS, 0.0)
         self._is_connected = True
 
     def _receive_state(self, timeout_ms: float) -> bool:
@@ -174,8 +180,11 @@ class ContinuumPMAC(Robot):
             raise ValueError("Continuum state contains non-finite values.")
 
         status = message.get("status", {})
+        raw_applied_action = message.get("applied_action", {})
         self._last_state = state
         self._last_status = dict(status) if isinstance(status, Mapping) else {}
+        if isinstance(raw_applied_action, Mapping):
+            self._last_applied_action = _normalize_action(raw_applied_action)
         self._last_state_received_at = time.perf_counter()
 
     def get_observation(self) -> RobotObservation:
@@ -200,7 +209,11 @@ class ContinuumPMAC(Robot):
         if not self._is_connected or self._command_socket is None:
             raise DeviceNotConnectedError(f"{self} is not connected.")
 
-        normalized = _normalize_action(action)
+        teleop_action = _normalize_action(action)
+        normalized = {
+            key: teleop_action[key] + self._action_offset.get(key, 0.0)
+            for key in ACTION_FIELDS
+        }
         message = {
             "protocol_version": PROTOCOL_VERSION,
             "kind": "command",

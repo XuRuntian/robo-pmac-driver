@@ -9,7 +9,7 @@ class OmegaContinuumConfig(TeleoperatorConfig):
     simulate: bool = False
     scale_x: float = 0.25
     scale_y: float = 0.08
-    scale_z: float = 0.25
+    scale_z: float = -0.25
     omega_map: str = "zxy"
     max_delta_x: float = 0.03
     max_delta_y: float = 0.01
@@ -18,8 +18,8 @@ class OmegaContinuumConfig(TeleoperatorConfig):
     rotation_scale_x: float = 1.0
     rotation_scale_y: float = 1.0
     rotation_scale_z: float = 1.0
-    max_rotation_x: float = 0.15
-    max_rotation_y: float = 0.15
+    max_rotation_x: float = 0.0
+    max_rotation_y: float = 0.0
     max_rotation_z: float = 0.0
     rotation_deadband_rad: float = 0.005
     zero_samples: int = 20

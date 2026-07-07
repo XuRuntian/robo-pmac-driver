@@ -67,6 +67,32 @@ cd D:\project\surgical_continuum_robot\robo-pmac-driver
 python apps/continuum_driver_server.py --execute
 ```
 
+This default interface config matches the stable translation-only Omega
+baseline:
+
+```text
+scale XYZ = [0.25, 0.08, -0.25]
+max delta XYZ = [0.03, 0.01, 0.03] m
+max speed XYZ = [0.05, 0.003, 0.05] m/s
+smooth_alpha = 0.5
+orientation_enabled = false
+```
+
+By default, startup captures the current encoder feedback as the logical zero
+for that run. To move the robot back to the configured pulse reference before
+opening teleoperation, use the explicit startup return option:
+
+```powershell
+python apps/continuum_driver_server.py --execute `
+  --return-to-reference-on-start `
+  --return-duration 12 `
+  --return-check-tolerance-pulses 50000
+```
+
+The return uses fixed-rate PVT interpolation from the startup feedback to
+`initial_position.reference_pulses`, then uses that reference as the logical
+zero for subsequent commands.
+
 Default endpoints:
 
 - command input: `tcp://127.0.0.1:5555`
@@ -77,6 +103,16 @@ Default endpoints:
 
 The timeout freezes the currently applied Cartesian target. It does not return
 the robot to neutral and does not continue moving toward an old target.
+
+When a LeRobot teleoperation client reconnects while the driver is still
+running, `continuum_pmac` preserves the driver's current `applied_action` as
+the new session offset. This lets the operator re-grab the robot from the
+current held pose instead of pulling it back toward neutral on the first zero
+Omega sample. To intentionally restart from neutral, restart the driver or set:
+
+```powershell
+--robot.preserve_applied_action_on_connect=false
+```
 
 ## LeRobot Types
 
@@ -111,10 +147,10 @@ lerobot-record `
   --teleop.simulate=true `
   --teleop.scale_x=0.25 `
   --teleop.scale_y=0.08 `
-  --teleop.scale_z=0.25 `
+  --teleop.scale_z=-0.25 `
   --teleop.omega_map=zxy `
-  --teleop.max_rotation_x=0.15 `
-  --teleop.max_rotation_y=0.15 `
+  --teleop.max_rotation_x=0.0 `
+  --teleop.max_rotation_y=0.0 `
   --teleop.max_rotation_z=0.0 `
   --teleop.rotation_deadband_rad=0.005 `
   --dataset.repo_id=local/continuum_omega_test `
@@ -159,9 +195,20 @@ lerobot-record `
   --play_sounds=false
 ```
 
-The recorded action is the six-field Cartesian tip offset: translation in
-meters and a startup-relative rotation vector in radians. The recorded robot
-state contains axes 1-4 in radians and axis 5 in meters.
+The default recorded action is the six-field Cartesian tip offset. Translation
+is in meters; the rotation fields are reserved and remain zero in the stable
+translation-only baseline. The recorded robot state contains axes 1-4 in
+radians and axis 5 in meters.
+
+For experimental tip-direction control, start the driver with:
+
+```powershell
+python apps/continuum_driver_server.py --execute `
+  --interface-config config/robot_interface_rotation.yaml
+```
+
+Then explicitly set non-zero `--teleop.max_rotation_x/y` after validating the
+stable translation path.
 
 The ZMQ PUSH/PULL transport intentionally supports one active LeRobot robot
 client. PMAC ownership must remain exclusive to the driver service.

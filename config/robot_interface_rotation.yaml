@@ -1,0 +1,25 @@
+# Experimental rotation-enabled interface config.
+# Use only after the stable translation baseline is confirmed.
+control_hz: 50
+
+omega_map: zxy
+
+initial_position:
+  mode: capture_current
+  reference_pulses: [63037980, 503187440, -141762994, 404354914, 18]
+  reject_all_zero_feedback: true
+  require_near_reference: false
+  tolerance_pulses: null
+
+command:
+  max_delta_m: [0.03, 0.01, 0.03]
+  max_speed_m_s: [0.05, 0.003, 0.05]
+
+  # Rotation is a neutral-tip-frame rotation vector [rx, ry, rz] in radians.
+  orientation_enabled: true
+  # Tool-axis roll rz is reserved but disabled by the current 5-DoF mechanism.
+  max_rotation_delta_rad: [0.15, 0.15, 0.0]
+  max_angular_speed_rad_s: [0.3, 0.3, 0.0]
+
+  deadband_m: 0.0003
+  smooth_alpha: 0.5

@@ -13,4 +13,5 @@ class ContinuumPMACConfig(RobotConfig):
     connect_timeout_s: float = 5.0
     polling_timeout_ms: int = 20
     state_timeout_s: float = 0.5
+    preserve_applied_action_on_connect: bool = True
     cameras: dict[str, CameraConfig] = field(default_factory=dict)

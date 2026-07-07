@@ -37,9 +37,11 @@ radians. A rotation vector is used instead of Euler angles to avoid Euler
 singularities and instead of a quaternion to avoid an extra normalization
 constraint.
 
-The ZMQ driver switches the IK task to `pos_z` when
-`orientation_enabled: true`. Translation and rotation are filtered
-independently using the configured linear and angular limits.
+The stable default ZMQ driver config uses `orientation_enabled: false`, matching
+the validated translation-only Omega teleoperation baseline. When an
+experimental config sets `orientation_enabled: true`, the driver switches the
+IK task to `pos_z`. Translation and rotation are filtered independently using
+the configured linear and angular limits.
 
 The robot has five generalized coordinates, so it controls three-dimensional
 tip position plus the two-dimensional tip-axis direction. Independent roll
@@ -147,6 +149,17 @@ tolerance_pulses: [axis1, axis2, axis3, axis4, axis5]
 
 Automatic homing or return-to-reference must remain an explicit operation,
 separate from connecting and selecting the coordinate reference.
+
+The driver service provides this explicit startup return through:
+
+```powershell
+python apps/continuum_driver_server.py --execute `
+  --return-to-reference-on-start `
+  --return-duration 12
+```
+
+This ramps from startup feedback to `reference_pulses` using the fixed PMAC PVT
+rate before any LeRobot teleoperation client connects.
 
 ## Timing
 

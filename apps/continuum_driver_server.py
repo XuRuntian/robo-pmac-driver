@@ -49,6 +49,29 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Connect to PMAC and execute motion. Without this flag the service is a dry-run simulator.",
     )
+    parser.add_argument(
+        "--return-to-reference-on-start",
+        action="store_true",
+        help=(
+            "Before accepting teleoperation commands, move from the startup feedback "
+            "position to initial_position.reference_pulses using a fixed-rate PVT ramp."
+        ),
+    )
+    parser.add_argument(
+        "--return-duration",
+        type=float,
+        default=8.0,
+        help="Seconds used by --return-to-reference-on-start.",
+    )
+    parser.add_argument(
+        "--return-check-tolerance-pulses",
+        type=int,
+        default=0,
+        help=(
+            "If positive, read feedback after startup return and fail when any axis "
+            "is farther than this many pulses from the configured reference."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -76,12 +99,88 @@ def _state_from_feedback(
     }
 
 
+def _smoothstep(value: float) -> float:
+    return value * value * (3.0 - 2.0 * value)
+
+
+def _return_to_reference_pvt(
+    robot: PMACRobotController,
+    *,
+    start_pulses: list[int],
+    reference_pulses: list[int],
+    update_hz: int,
+    duration_s: float,
+    check_tolerance_pulses: int,
+) -> list[int]:
+    if duration_s <= 0.0:
+        raise ValueError("--return-duration must be positive.")
+    if update_hz <= 0:
+        raise ValueError("update_hz must be positive.")
+
+    steps = max(1, int(round(duration_s * update_hz)))
+    move_time_ms = 1000.0 / update_hz
+    start = np.asarray(start_pulses, dtype=float)
+    reference = np.asarray(reference_pulses, dtype=float)
+    previous = start.copy()
+    next_call = time.perf_counter()
+
+    print(
+        "Startup return-to-reference enabled | "
+        f"duration={duration_s:.2f}s | steps={steps} | reference={reference_pulses}"
+    )
+    for index in range(1, steps + 1):
+        alpha = _smoothstep(index / steps)
+        target = np.rint(start + alpha * (reference - start)).astype(int)
+        velocities = ((target - previous) / move_time_ms).astype(float).tolist()
+        robot.move_pvt_stream(
+            target_pulses=target.tolist(),
+            velocities=velocities,
+            move_time=move_time_ms,
+        )
+        previous = target.astype(float)
+
+        next_call += 1.0 / update_hz
+        sleep_time = next_call - time.perf_counter()
+        if sleep_time > 0.0:
+            time.sleep(sleep_time)
+        else:
+            next_call = time.perf_counter()
+
+    for _ in range(3):
+        robot.move_pvt_stream(
+            target_pulses=reference_pulses,
+            velocities=[0.0, 0.0, 0.0, 0.0, 0.0],
+            move_time=move_time_ms,
+        )
+        time.sleep(1.0 / update_hz)
+
+    feedback = robot.read_positions()
+    if any(feedback):
+        errors = [actual - expected for actual, expected in zip(feedback, reference_pulses)]
+        print(f"Startup return feedback: {feedback} | errors={errors}")
+        if check_tolerance_pulses > 0 and any(
+            abs(error) > check_tolerance_pulses for error in errors
+        ):
+            raise RuntimeError(
+                "Startup return finished outside tolerance: "
+                f"errors={errors}, tolerance={check_tolerance_pulses}"
+            )
+        return feedback
+
+    print("Startup return feedback read as all zero; keeping reference as startup feedback.")
+    return reference_pulses.copy()
+
+
 def main() -> None:
     args = parse_args()
     if args.watchdog_timeout <= 0.0:
         raise ValueError("--watchdog-timeout must be positive.")
     if args.feedback_hz <= 0.0:
         raise ValueError("--feedback-hz must be positive.")
+    if args.return_duration <= 0.0:
+        raise ValueError("--return-duration must be positive.")
+    if args.return_check_tolerance_pulses < 0:
+        raise ValueError("--return-check-tolerance-pulses must be non-negative.")
 
     continuum_cfg = load_continuum_config(args.config)
     interface_cfg = load_robot_interface_config(args.interface_config)
@@ -112,7 +211,25 @@ def main() -> None:
     if robot is not None:
         robot.safe_boot_and_home()
         current_pulses = robot.base_positions.copy()
-        base_pulses = interface_cfg.initial_position.resolve_reference(current_pulses)
+        if interface_cfg.initial_position.reject_all_zero_feedback and not any(current_pulses):
+            raise RuntimeError("PMAC returned an invalid all-zero startup position.")
+
+        if args.return_to_reference_on_start:
+            if interface_cfg.initial_position.reference_pulses is None:
+                raise ValueError(
+                    "--return-to-reference-on-start requires initial_position.reference_pulses."
+                )
+            base_pulses = list(interface_cfg.initial_position.reference_pulses)
+            current_pulses = _return_to_reference_pvt(
+                robot,
+                start_pulses=current_pulses,
+                reference_pulses=base_pulses,
+                update_hz=update_hz,
+                duration_s=args.return_duration,
+                check_tolerance_pulses=args.return_check_tolerance_pulses,
+            )
+        else:
+            base_pulses = interface_cfg.initial_position.resolve_reference(current_pulses)
         robot.base_positions = base_pulses.copy()
     else:
         base_pulses = list(
@@ -120,6 +237,8 @@ def main() -> None:
             or (0, 0, 0, 0, 0)
         )
         current_pulses = base_pulses.copy()
+        if args.return_to_reference_on_start:
+            print("Dry-run return-to-reference: using configured reference as base pulses.")
 
     pvt_mapper = ContinuumPVTMapper(
         ik=ik,
