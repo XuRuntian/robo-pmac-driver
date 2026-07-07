@@ -149,6 +149,9 @@ class DLSIK:
 
         self.eps_j = np.array([1e-3, 5e-3, 5e-3, 5e-3, 5e-3], dtype=float)
         self.max_du = 0.05 * np.array([0.006, 0.05, 0.05, 0.05, 0.05], dtype=float)
+        self.step_limit_enabled = False
+        self.line_search_steps = 3
+        self.gradient_fallback_step = 0.01
 
         self.w_pos = 1.0
         self.w_dir = 0.1
@@ -166,13 +169,26 @@ class DLSIK:
 
         p = p + r @ np.array([0.0, 0.0, d], dtype=float)
 
-        r_a, p_a = const_curv_segment_rp(g.s_a, th_a, ph_a)
+        if g.use_sheath:
+            segment_a_inside, segment_c_inside = g.sheath_partition_lengths(d)
+            length_a = g.s_a - segment_a_inside
+            length_c = g.s_c - segment_c_inside
+            cap_a, cap_c = g.curvature_caps(d)
+        else:
+            length_a = g.s_a
+            length_c = g.s_c
+            cap_a, cap_c = g.theta_a_max, g.theta_c_max
+
+        th_a_eff = float(np.clip(th_a, 0.0, cap_a))
+        th_c_eff = float(np.clip(th_c, 0.0, cap_c))
+
+        r_a, p_a = const_curv_segment_rp(length_a, th_a_eff, ph_a)
         p = p + r @ p_a
         r = r @ r_a
 
         p = p + r @ np.array([0.0, 0.0, g.h_bc - g.s_s], dtype=float)
 
-        r_c, p_c = const_curv_segment_rp(g.s_c, th_c, ph_c)
+        r_c, p_c = const_curv_segment_rp(length_c, th_c_eff, ph_c)
         p = p + r @ p_c
         r = r @ r_c
 
@@ -209,31 +225,36 @@ class DLSIK:
         z_goal: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         g = self.geometry
-        cap_a = g.theta_a_max
-        cap_c = g.theta_c_max
         d_range = (g.d_min, g.d_max)
 
+        cap_a, cap_c = g.curvature_caps(float(self.u[0]))
         qu = clamp_qu(u_to_qu(self.u), d_range, cap_a, cap_c)
+        cap_a, cap_c = g.curvature_caps(float(qu[0]))
 
         j, e = self._jac_fd_qu(qu, p_goal, r_goal, z_goal)
         a = j @ j.T + (self.lmbda**2) * np.eye(j.shape[0])
         dqu = -self.alpha * (j.T @ np.linalg.solve(a, e))
 
-        if self.task_mode != "position":
-            # Preserve the coupled DLS direction. Per-axis clipping can cancel
-            # the relative segment motion needed for orientation control.
-            step_ratio = float(np.max(np.abs(dqu) / self.max_du))
+        at_lower_bound = abs(qu[0] - d_range[0]) < 1e-12
+        at_upper_bound = abs(qu[0] - d_range[1]) < 1e-12
+        if at_lower_bound and dqu[0] < 0.0:
+            dqu[0] = 0.0
+        if at_upper_bound and dqu[0] > 0.0:
+            dqu[0] = 0.0
+
+        if self.step_limit_enabled:
+            max_du = np.asarray(self.max_du, dtype=float)
+            step_ratio = float(np.max(np.abs(dqu) / max_du))
             if step_ratio > 1.0:
                 dqu /= step_ratio
-        else:
-            dqu = np.clip(dqu, -self.max_du, self.max_du)
 
         err0 = float(np.linalg.norm(e))
         best_qu = qu.copy()
         best_err = err0
+        accepted = False
 
         scale = 1.0
-        for _ in range(3):
+        for _ in range(max(0, int(self.line_search_steps))):
             qu_try = clamp_qu(qu + scale * dqu, d_range, cap_a, cap_c)
             e_try = self._task_qu(qu_try, p_goal, r_goal, z_goal)
             err_try = float(np.linalg.norm(e_try))
@@ -241,9 +262,39 @@ class DLSIK:
             if err_try < best_err:
                 best_qu = qu_try
                 best_err = err_try
+            if err_try < err0 - 1e-9:
+                accepted = True
                 break
 
             scale *= 0.5
+
+        if not accepted:
+            gradient = j.T @ e
+            gradient_norm = float(np.linalg.norm(gradient))
+            if gradient_norm > 1e-12:
+                gradient_update = (
+                    -float(self.gradient_fallback_step)
+                    * gradient
+                    / gradient_norm
+                )
+                if at_lower_bound and gradient_update[0] < 0.0:
+                    gradient_update[0] = 0.0
+                if at_upper_bound and gradient_update[0] > 0.0:
+                    gradient_update[0] = 0.0
+                if self.step_limit_enabled:
+                    max_du = np.asarray(self.max_du, dtype=float)
+                    gradient_update = np.clip(
+                        gradient_update,
+                        -max_du,
+                        max_du,
+                    )
+
+                qu_try = clamp_qu(qu + gradient_update, d_range, cap_a, cap_c)
+                e_try = self._task_qu(qu_try, p_goal, r_goal, z_goal)
+                err_try = float(np.linalg.norm(e_try))
+                if err_try < best_err - 1e-9:
+                    best_qu = qu_try
+                    best_err = err_try
 
         u_new = self._clip_u(qu_to_u(best_qu))
         du_report = u_new - self.u
@@ -318,11 +369,13 @@ class DLSIK:
         g = self.geometry
         f0 = self._task_qu(qu, p_goal, r_goal, z_goal)
         j = np.zeros((f0.size, qu.size), dtype=float)
+        cap_a, cap_c = g.curvature_caps(float(qu[0]))
+        eps_j = np.asarray(self.eps_j, dtype=float)
 
         for k in range(qu.size):
             q1 = qu.copy()
-            q1[k] += self.eps_j[k]
-            q1 = clamp_qu(q1, (g.d_min, g.d_max), g.theta_a_max, g.theta_c_max)
+            q1[k] += eps_j[k]
+            q1 = clamp_qu(q1, (g.d_min, g.d_max), cap_a, cap_c)
 
             denom = q1[k] - qu[k]
             if abs(denom) < 1e-12:
@@ -337,8 +390,9 @@ class DLSIK:
         g = self.geometry
         out = u.copy()
         out[0] = np.clip(out[0], g.d_min, g.d_max)
-        out[1] = np.clip(out[1], 0.0, g.theta_a_max)
+        cap_a, cap_c = g.curvature_caps(float(out[0]))
+        out[1] = np.clip(out[1], 0.0, cap_a)
         out[2] = (out[2] + np.pi) % (2.0 * np.pi) - np.pi
-        out[3] = np.clip(out[3], 0.0, g.theta_c_max)
+        out[3] = np.clip(out[3], 0.0, cap_c)
         out[4] = (out[4] + np.pi) % (2.0 * np.pi) - np.pi
         return out

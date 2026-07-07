@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import time
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -14,6 +16,7 @@ from continuum_sdk.core.config_loader import load_continuum_config
 from continuum_sdk.core.factory import build_continuum_ik, build_tendon_mapper
 from continuum_sdk.core.interface_config import load_robot_interface_config
 from continuum_sdk.kinematics.dls_ik import rotvec_to_matrix
+from continuum_sdk.kinematics.joint_motor_model import MotorAngles
 from continuum_sdk.transport.zmq_protocol import (
     build_state_message,
     parse_control_message,
@@ -71,6 +74,20 @@ def parse_args() -> argparse.Namespace:
             "If positive, read feedback after startup return and fail when any axis "
             "is farther than this many pulses from the configured reference."
         ),
+    )
+    parser.add_argument(
+        "--shape-debug-hz",
+        type=float,
+        default=0.0,
+        help=(
+            "Print proximal/distal shape diagnostics at this rate. "
+            "0 disables terminal diagnostic output."
+        ),
+    )
+    parser.add_argument(
+        "--shape-debug-csv",
+        default="",
+        help="Optional CSV path for proximal/distal shape diagnostics.",
     )
     return parser.parse_args()
 
@@ -171,6 +188,126 @@ def _return_to_reference_pvt(
     return reference_pulses.copy()
 
 
+def _shape_from_logical_axes(tendon_mapper: Any, logical_axes: list[float]) -> dict[str, float]:
+    recovered = tendon_mapper.model.motor_angles_to_joint(
+        MotorAngles(
+            alpha1=logical_axes[0],
+            alpha2=logical_axes[1],
+            alpha3=logical_axes[2],
+            alpha4=logical_axes[3],
+        )
+    )
+    return {
+        "d_m": float(logical_axes[4]),
+        "theta_a_rad": float(recovered.theta_a),
+        "phi_a_rad": float(recovered.phi_a),
+        "theta_c_rad": float(recovered.theta_c),
+        "phi_c_rad": float(recovered.phi_c),
+    }
+
+
+def _shape_ratio(theta_a: float, theta_c: float) -> float:
+    if abs(theta_a) < 1e-9:
+        return float("nan")
+    return float(theta_c / theta_a)
+
+
+def _build_shape_diagnostic(
+    *,
+    t_s: float,
+    state_sequence: int,
+    axis_mapper: ContinuumAxisMapper,
+    tendon_mapper: Any,
+    base_pulses: list[int],
+    pvt_command: Any,
+    feedback_pulses: list[int],
+    applied_action: dict[str, float],
+    watchdog_holding: bool,
+) -> dict[str, float | int | bool]:
+    target_logical = axis_mapper.pulses_to_logical(base_pulses, pvt_command.target_pulses)
+    feedback_logical = axis_mapper.pulses_to_logical(base_pulses, feedback_pulses)
+    target_shape = _shape_from_logical_axes(tendon_mapper, target_logical)
+    feedback_shape = _shape_from_logical_axes(tendon_mapper, feedback_logical)
+    pulse_error = [
+        int(actual - target)
+        for actual, target in zip(feedback_pulses, pvt_command.target_pulses)
+    ]
+    alpha_error = [
+        float(actual - target)
+        for actual, target in zip(feedback_logical[:4], target_logical[:4])
+    ]
+    ik_u = pvt_command.ik_result.u
+
+    row: dict[str, float | int | bool] = {
+        "t_s": float(t_s),
+        "sequence": int(state_sequence),
+        "watchdog_holding": bool(watchdog_holding),
+        "applied_x_m": float(applied_action["tip_delta_x"]),
+        "applied_y_m": float(applied_action["tip_delta_y"]),
+        "applied_z_m": float(applied_action["tip_delta_z"]),
+        "ik_d_m": float(ik_u[0]),
+        "ik_theta_a_rad": float(ik_u[1]),
+        "ik_phi_a_rad": float(ik_u[2]),
+        "ik_theta_c_rad": float(ik_u[3]),
+        "ik_phi_c_rad": float(ik_u[4]),
+        "target_d_m": target_shape["d_m"],
+        "target_theta_a_rad": target_shape["theta_a_rad"],
+        "target_phi_a_rad": target_shape["phi_a_rad"],
+        "target_theta_c_rad": target_shape["theta_c_rad"],
+        "target_phi_c_rad": target_shape["phi_c_rad"],
+        "feedback_d_m": feedback_shape["d_m"],
+        "feedback_theta_a_rad": feedback_shape["theta_a_rad"],
+        "feedback_phi_a_rad": feedback_shape["phi_a_rad"],
+        "feedback_theta_c_rad": feedback_shape["theta_c_rad"],
+        "feedback_phi_c_rad": feedback_shape["phi_c_rad"],
+        "target_theta_c_over_a": _shape_ratio(
+            target_shape["theta_a_rad"],
+            target_shape["theta_c_rad"],
+        ),
+        "feedback_theta_c_over_a": _shape_ratio(
+            feedback_shape["theta_a_rad"],
+            feedback_shape["theta_c_rad"],
+        ),
+        "ik_error_m": float(np.linalg.norm(pvt_command.ik_result.error[:3])),
+    }
+    for index, value in enumerate(target_logical[:4], start=1):
+        row[f"target_alpha{index}_rad"] = float(value)
+    for index, value in enumerate(feedback_logical[:4], start=1):
+        row[f"feedback_alpha{index}_rad"] = float(value)
+    for index, value in enumerate(alpha_error, start=1):
+        row[f"alpha{index}_err_rad"] = float(value)
+    for index, value in enumerate(pvt_command.target_pulses, start=1):
+        row[f"target_p{index}"] = int(value)
+    for index, value in enumerate(feedback_pulses, start=1):
+        row[f"feedback_p{index}"] = int(value)
+    for index, value in enumerate(pulse_error, start=1):
+        row[f"pulse_err{index}"] = int(value)
+    return row
+
+
+def _print_shape_diagnostic(row: dict[str, float | int | bool]) -> None:
+    rad_to_deg = 180.0 / np.pi
+    target_a = float(row["target_theta_a_rad"]) * rad_to_deg
+    target_c = float(row["target_theta_c_rad"]) * rad_to_deg
+    feedback_a = float(row["feedback_theta_a_rad"]) * rad_to_deg
+    feedback_c = float(row["feedback_theta_c_rad"]) * rad_to_deg
+    print(
+        "shape "
+        f"t={float(row['t_s']):.2f}s | "
+        f"cmd_xyz_mm=[{float(row['applied_x_m']) * 1000:+.1f}, "
+        f"{float(row['applied_y_m']) * 1000:+.1f}, "
+        f"{float(row['applied_z_m']) * 1000:+.1f}] | "
+        f"theta tgt(a,c)=[{target_a:+.2f}, {target_c:+.2f}]deg "
+        f"fb=[{feedback_a:+.2f}, {feedback_c:+.2f}]deg | "
+        f"ratio tgt/fb=[{float(row['target_theta_c_over_a']):+.2f}, "
+        f"{float(row['feedback_theta_c_over_a']):+.2f}] | "
+        f"alpha_err=[{float(row['alpha1_err_rad']):+.4f}, "
+        f"{float(row['alpha2_err_rad']):+.4f}, "
+        f"{float(row['alpha3_err_rad']):+.4f}, "
+        f"{float(row['alpha4_err_rad']):+.4f}]rad"
+    )
+
+
 def main() -> None:
     args = parse_args()
     if args.watchdog_timeout <= 0.0:
@@ -181,6 +318,8 @@ def main() -> None:
         raise ValueError("--return-duration must be positive.")
     if args.return_check_tolerance_pulses < 0:
         raise ValueError("--return-check-tolerance-pulses must be non-negative.")
+    if args.shape_debug_hz < 0.0:
+        raise ValueError("--shape-debug-hz must be non-negative.")
 
     continuum_cfg = load_continuum_config(args.config)
     interface_cfg = load_robot_interface_config(args.interface_config)
@@ -277,6 +416,17 @@ def main() -> None:
     next_feedback = time.perf_counter()
     next_call = time.perf_counter()
     state_sequence = 0
+    next_shape_debug = time.perf_counter()
+    shape_debug_interval = (
+        float("inf") if args.shape_debug_hz <= 0.0 else 1.0 / args.shape_debug_hz
+    )
+    shape_log_file = None
+    shape_log_writer = None
+    shape_log_fields = None
+    if args.shape_debug_csv:
+        shape_log_path = Path(args.shape_debug_csv)
+        shape_log_path.parent.mkdir(parents=True, exist_ok=True)
+        shape_log_file = shape_log_path.open("w", newline="", encoding="utf-8")
 
     mode = "EXECUTE" if args.execute else "DRY-RUN"
     print(
@@ -285,8 +435,13 @@ def main() -> None:
         f"state=tcp://{args.bind_host}:{args.state_port}"
     )
     print(f"Base pulses: {base_pulses}")
+    if args.shape_debug_hz > 0.0:
+        print(f"Shape diagnostics printing at {args.shape_debug_hz:.2f} Hz")
+    if shape_log_file is not None:
+        print(f"Shape diagnostics CSV: {args.shape_debug_csv}")
 
     try:
+        start_time = time.perf_counter()
         while True:
             now = time.perf_counter()
             message = _latest_message(command_socket)
@@ -360,6 +515,7 @@ def main() -> None:
 
             state = _state_from_feedback(axis_mapper, base_pulses, feedback_pulses)
             ik_error = pvt_command.ik_result.error
+            applied_action = command_filter.applied_command()
             status = {
                 "execute": args.execute,
                 "control_hz": update_hz,
@@ -382,12 +538,37 @@ def main() -> None:
                 state_sequence,
                 state,
                 status=status,
-                applied_action=command_filter.applied_command(),
+                applied_action=applied_action,
             )
             try:
                 state_socket.send_json(state_message, flags=zmq.NOBLOCK)
             except zmq.Again:
                 pass
+
+            if (
+                args.shape_debug_hz > 0.0
+                and now >= next_shape_debug
+            ) or shape_log_file is not None:
+                shape_row = _build_shape_diagnostic(
+                    t_s=now - start_time,
+                    state_sequence=state_sequence,
+                    axis_mapper=axis_mapper,
+                    tendon_mapper=tendon_mapper,
+                    base_pulses=base_pulses,
+                    pvt_command=pvt_command,
+                    feedback_pulses=feedback_pulses,
+                    applied_action=applied_action,
+                    watchdog_holding=watchdog_holding,
+                )
+                if args.shape_debug_hz > 0.0 and now >= next_shape_debug:
+                    _print_shape_diagnostic(shape_row)
+                    next_shape_debug = now + shape_debug_interval
+                if shape_log_file is not None:
+                    if shape_log_writer is None:
+                        shape_log_fields = list(shape_row)
+                        shape_log_writer = csv.DictWriter(shape_log_file, fieldnames=shape_log_fields)
+                        shape_log_writer.writeheader()
+                    shape_log_writer.writerow(shape_row)
 
             state_sequence += 1
             last_target_pulses = list(pvt_command.target_pulses)
@@ -402,6 +583,8 @@ def main() -> None:
     finally:
         if robot is not None:
             robot.close()
+        if shape_log_file is not None:
+            shape_log_file.close()
         command_socket.close()
         state_socket.close()
         context.term()

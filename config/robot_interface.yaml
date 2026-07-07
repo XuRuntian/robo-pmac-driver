@@ -18,15 +18,16 @@ initial_position:
   tolerance_pulses: null
 
 command:
-  # Tip translation offset from the configured neutral tip pose, robot XYZ.
+  # Tip pose offset from the configured neutral tip pose, robot XYZ.
   max_delta_m: [0.03, 0.01, 0.03]
   max_speed_m_s: [0.05, 0.003, 0.05]
 
-  # Stable Omega teleoperation baseline is translation-only.
-  # Rotation remains available through an experimental interface config.
-  orientation_enabled: false
-  max_rotation_delta_rad: [0.0, 0.0, 0.0]
-  max_angular_speed_rad_s: [0.0, 0.0, 0.0]
+  # Default Omega teleoperation uses the complete 5-DOF IK task:
+  # translation plus tip-axis direction. rz is tool roll and remains disabled
+  # for the current continuum body.
+  orientation_enabled: true
+  max_rotation_delta_rad: [0.45, 0.45, 0.0]
+  max_angular_speed_rad_s: [0.45, 0.45, 0.0]
 
   deadband_m: 0.0003
   smooth_alpha: 0.5

@@ -37,16 +37,42 @@ radians. A rotation vector is used instead of Euler angles to avoid Euler
 singularities and instead of a quaternion to avoid an extra normalization
 constraint.
 
-The stable default ZMQ driver config uses `orientation_enabled: false`, matching
-the validated translation-only Omega teleoperation baseline. When an
-experimental config sets `orientation_enabled: true`, the driver switches the
-IK task to `pos_z`. Translation and rotation are filtered independently using
-the configured linear and angular limits.
+The default ZMQ driver config uses `orientation_enabled: true` and the
+`pos_z` IK task. This is the complete IK task for the current five-axis
+continuum body: Cartesian tip translation plus tip-axis direction. Translation
+and rotation are filtered independently using the configured linear and angular
+limits.
 
 The robot has five generalized coordinates, so it controls three-dimensional
 tip position plus the two-dimensional tip-axis direction. Independent roll
 about the tip axis (`rz`) is reserved in the interface but limited to zero by
 the current configuration.
+
+## Robot Variants
+
+The current PMAC hardware path is the five-axis continuum body without a clamp
+or gripper actuator. Its action space must remain the six-field tip pose offset
+above, where `rz` is reserved and normally clamped to zero.
+
+The MuJoCo project also contains clamp/gripper variants. Those models expose an
+extra `clamp_pos` actuator and a haptic grip angle, but that command must not
+be silently mixed into the current five-axis PMAC driver. If the clamp hardware
+is added later, expose it as an explicit robot variant or an additional action
+field such as `gripper_pos`, with its own unit and limits.
+
+The portable part of the MuJoCo controller is:
+
+```text
+tip target pose
+  -> DLS IK in u = [d, theta_a, phi_a, theta_c, phi_c]
+  -> local tendon/motor mapping
+  -> PMAC pulses
+```
+
+Only the IK target and solver behavior should be shared with the simulation.
+The final tendon-to-motor mapping must stay in this repository because it owns
+the physical wire routing, motor signs, encoder references, and PMAC pulse
+units.
 
 ## Robot State Output
 

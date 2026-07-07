@@ -67,15 +67,19 @@ cd D:\project\surgical_continuum_robot\robo-pmac-driver
 python apps/continuum_driver_server.py --execute
 ```
 
-This default interface config matches the stable translation-only Omega
-baseline:
+This default interface config matches the validated complete Omega
+teleoperation baseline: Cartesian tip translation plus tip-axis direction.
 
 ```text
 scale XYZ = [0.25, 0.08, -0.25]
 max delta XYZ = [0.03, 0.01, 0.03] m
 max speed XYZ = [0.05, 0.003, 0.05] m/s
+rotation scale XYZ = [-0.3, 0.3, 0.0]
+max rotation XYZ = [0.45, 0.45, 0.0] rad
+max angular speed XYZ = [0.45, 0.45, 0.0] rad/s
 smooth_alpha = 0.5
-orientation_enabled = false
+orientation_enabled = true
+IK task = pos_z
 ```
 
 By default, startup captures the current encoder feedback as the logical zero
@@ -149,10 +153,13 @@ lerobot-record `
   --teleop.scale_y=0.08 `
   --teleop.scale_z=-0.25 `
   --teleop.omega_map=zxy `
-  --teleop.max_rotation_x=0.0 `
-  --teleop.max_rotation_y=0.0 `
+  --teleop.max_rotation_x=0.45 `
+  --teleop.max_rotation_y=0.45 `
   --teleop.max_rotation_z=0.0 `
-  --teleop.rotation_deadband_rad=0.005 `
+  --teleop.rotation_scale_x=-0.3 `
+  --teleop.rotation_scale_y=0.3 `
+  --teleop.rotation_scale_z=0.0 `
+  --teleop.rotation_deadband_rad=0.01 `
   --dataset.repo_id=local/continuum_omega_test `
   --dataset.root=D:/project/lerobot_data/continuum_omega_test `
   --dataset.single_task="Continuum robot Omega teleoperation test" `
@@ -196,19 +203,46 @@ lerobot-record `
 ```
 
 The default recorded action is the six-field Cartesian tip offset. Translation
-is in meters; the rotation fields are reserved and remain zero in the stable
-translation-only baseline. The recorded robot state contains axes 1-4 in
-radians and axis 5 in meters.
+is in meters; `rx/ry` are tip-direction rotation-vector commands in radians,
+and `rz` is reserved at zero for the current five-axis body. The recorded robot
+state contains axes 1-4 in radians and axis 5 in meters.
 
-For experimental tip-direction control, start the driver with:
+## Teleoperation Command
+
+The default driver and LeRobot teleoperator now include rotation, so the normal
+hardware command is:
 
 ```powershell
-python apps/continuum_driver_server.py --execute `
-  --interface-config config/robot_interface_rotation.yaml
+cd D:\project\surgical_continuum_robot\robo-pmac-driver
+python apps/continuum_driver_server.py --execute
 ```
 
-Then explicitly set non-zero `--teleop.max_rotation_x/y` after validating the
-stable translation path.
+Then start LeRobot teleoperation:
+
+```powershell
+cd D:\project\lerobot
+lerobot-teleoperate `
+  --robot.type=continuum_pmac `
+  --robot.id=continuum_robot `
+  --robot.remote_ip=127.0.0.1 `
+  --teleop.type=omega_continuum `
+  --teleop.id=omega_master
+```
+
+The default `omega_continuum` parameters are:
+
+```text
+scale XYZ = [0.25, 0.08, -0.25]
+max delta XYZ = [0.03, 0.01, 0.03] m
+rotation scale XYZ = [-0.3, 0.3, 0.0]
+max rotation XYZ = [0.45, 0.45, 0.0] rad
+rotation deadband = 0.01 rad
+```
+
+The sign of `rotation_scale_x` is intentionally negative because the physical
+left-right bend direction was validated that way. `rotation_scale_z` remains
+zero because roll about the tip axis is not an effective independent shape
+input for the current five-axis continuum body.
 
 The ZMQ PUSH/PULL transport intentionally supports one active LeRobot robot
 client. PMAC ownership must remain exclusive to the driver service.

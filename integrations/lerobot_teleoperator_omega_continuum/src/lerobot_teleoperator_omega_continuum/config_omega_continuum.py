@@ -15,13 +15,13 @@ class OmegaContinuumConfig(TeleoperatorConfig):
     max_delta_y: float = 0.01
     max_delta_z: float = 0.03
     deadband_m: float = 0.0003
-    rotation_scale_x: float = 1.0
-    rotation_scale_y: float = 1.0
-    rotation_scale_z: float = 1.0
-    max_rotation_x: float = 0.0
-    max_rotation_y: float = 0.0
+    rotation_scale_x: float = -0.3
+    rotation_scale_y: float = 0.3
+    rotation_scale_z: float = 0.0
+    max_rotation_x: float = 0.45
+    max_rotation_y: float = 0.45
     max_rotation_z: float = 0.0
-    rotation_deadband_rad: float = 0.005
+    rotation_deadband_rad: float = 0.01
     zero_samples: int = 20
     zero_sample_period_s: float = 0.005
 

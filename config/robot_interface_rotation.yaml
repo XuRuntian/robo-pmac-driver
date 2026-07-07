@@ -1,5 +1,6 @@
-# Experimental rotation-enabled interface config.
-# Use only after the stable translation baseline is confirmed.
+# Conservative rotation-enabled interface config.
+# The default robot_interface.yaml now uses the validated full 5-DOF teleop
+# limits; keep this file for smaller-amplitude rotation tests.
 control_hz: 50
 
 omega_map: zxy

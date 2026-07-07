@@ -12,6 +12,8 @@ geometry:
   use_sheath: false
 
 ik:
+  # The driver also forces pos_z when orientation_enabled is true. Keeping this
+  # explicit makes the experiment self-documenting.
   task_mode: pos_z
   lambda_damping: 0.008
   alpha: 1.0
@@ -21,14 +23,13 @@ ik:
   max_inner_steps: 8
   jacobian_eps: [0.001, 0.005, 0.005, 0.005, 0.005]
   position_weight: 1.0
+  # Stronger than the stable baseline so Omega rotation visibly affects the
+  # proximal/distal shape instead of being dominated by tip-position tracking.
   direction_weight: 0.8
   orientation_weight: 0.1
   line_search_steps: 4
   gradient_fallback_step: 0.01
-  # Matches the newer MuJoCo teleop IK: no hard per-step IK clipping.
-  # Cartesian speed limits are still enforced by robot_interface.yaml.
   step_limit_enabled: false
-  # Conservative fallback if step_limit_enabled is set true.
   max_delta_u: [0.0003, 0.0025, 0.0025, 0.0025, 0.0025]
 
 actuation:
