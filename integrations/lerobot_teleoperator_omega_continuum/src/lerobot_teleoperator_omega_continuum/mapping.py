@@ -37,6 +37,8 @@ class OmegaContinuumMapper:
         max_delta_xyz: tuple[float, float, float],
         deadband_m: float,
         omega_map: str,
+        rotation_map: str | None = None,
+        position_offset_xyz: tuple[float, float, float] = (0.0, 0.0, 0.0),
         rotation_scale_xyz: tuple[float, float, float] = (1.0, 1.0, 1.0),
         max_rotation_xyz: tuple[float, float, float] = (0.15, 0.15, 0.0),
         rotation_deadband_rad: float = 0.005,
@@ -45,27 +47,71 @@ class OmegaContinuumMapper:
         omega_map = omega_map.lower()
         if sorted(omega_map) != ["x", "y", "z"]:
             raise ValueError("omega_map must be a permutation of xyz.")
+        rotation_map = omega_map if rotation_map is None else rotation_map.lower()
+        if sorted(rotation_map) != ["x", "y", "z"]:
+            raise ValueError("rotation_map must be a permutation of xyz.")
 
         self.scale = np.asarray(scale_xyz, dtype=float)
         self.max_delta = np.asarray(max_delta_xyz, dtype=float)
+        self.position_offset = np.asarray(position_offset_xyz, dtype=float)
+        if self.position_offset.shape != (3,) or not np.all(np.isfinite(self.position_offset)):
+            raise ValueError("position_offset_xyz must contain three finite values.")
         self.deadband_m = float(deadband_m)
         self.rotation_scale = np.asarray(rotation_scale_xyz, dtype=float)
         self.max_rotation = np.asarray(max_rotation_xyz, dtype=float)
         self.rotation_deadband_rad = float(rotation_deadband_rad)
         self._omega_to_robot = np.asarray([axis_index[axis] for axis in omega_map], dtype=int)
+        self._omega_rotation_to_robot = np.asarray(
+            [axis_index[axis] for axis in rotation_map],
+            dtype=int,
+        )
         self._zero: np.ndarray | None = None
         self._zero_orientation: np.ndarray | None = None
 
-    def set_zero(self, position: np.ndarray, orientation: np.ndarray | None = None) -> None:
+    @staticmethod
+    def _validate_position(position: np.ndarray) -> np.ndarray:
         position = np.asarray(position, dtype=float)
         if position.shape != (3,) or not np.all(np.isfinite(position)):
-            raise ValueError("Omega zero position must contain three finite values.")
-        self._zero = position.copy()
-        if orientation is None:
-            orientation = np.eye(3, dtype=float)
+            raise ValueError("Omega position must contain three finite values.")
+        return position
+
+    @staticmethod
+    def _validate_orientation(orientation: np.ndarray) -> np.ndarray:
         orientation = np.asarray(orientation, dtype=float)
         if orientation.shape != (3, 3) or not np.all(np.isfinite(orientation)):
-            raise ValueError("Omega zero orientation must be a finite 3x3 matrix.")
+            raise ValueError("Omega orientation must be a finite 3x3 matrix.")
+        return orientation
+
+    def control_position(self, position: np.ndarray, orientation: np.ndarray | None = None) -> np.ndarray:
+        position = self._validate_position(position)
+        if orientation is None:
+            orientation = np.eye(3, dtype=float)
+        orientation = self._validate_orientation(orientation)
+        return position + orientation @ self.position_offset
+
+    def omega_position_delta(
+        self,
+        position: np.ndarray,
+        orientation: np.ndarray | None = None,
+    ) -> np.ndarray:
+        if self._zero is None:
+            raise RuntimeError("Omega zero position has not been sampled.")
+        return self.control_position(position, orientation) - self._zero
+
+    def omega_rotation_delta(self, orientation: np.ndarray | None = None) -> np.ndarray:
+        if self._zero_orientation is None:
+            raise RuntimeError("Omega zero orientation has not been sampled.")
+        if orientation is None:
+            orientation = self._zero_orientation
+        orientation = self._validate_orientation(orientation)
+        return _matrix_to_rotvec(self._zero_orientation.T @ orientation)
+
+    def set_zero(self, position: np.ndarray, orientation: np.ndarray | None = None) -> None:
+        if orientation is None:
+            orientation = np.eye(3, dtype=float)
+        position = self._validate_position(position)
+        orientation = self._validate_orientation(orientation)
+        self._zero = self.control_position(position, orientation)
         self._zero_orientation = orientation.copy()
 
     def map_position(self, position: np.ndarray) -> dict[str, float]:
@@ -81,22 +127,19 @@ class OmegaContinuumMapper:
         if self._zero_orientation is None:
             raise RuntimeError("Omega zero orientation has not been sampled.")
 
-        position = np.asarray(position, dtype=float)
-        if position.shape != (3,) or not np.all(np.isfinite(position)):
-            raise ValueError("Omega position must contain three finite values.")
+        if orientation is None:
+            orientation = self._zero_orientation
+        position = self._validate_position(position)
+        orientation = self._validate_orientation(orientation)
 
-        delta = (position - self._zero)[self._omega_to_robot] * self.scale
+        control_position = self.control_position(position, orientation)
+        delta = (control_position - self._zero)[self._omega_to_robot] * self.scale
         if self.deadband_m > 0.0:
             delta[np.abs(delta) < self.deadband_m] = 0.0
         delta = np.clip(delta, -self.max_delta, self.max_delta)
-        if orientation is None:
-            orientation = self._zero_orientation
-        orientation = np.asarray(orientation, dtype=float)
-        if orientation.shape != (3, 3) or not np.all(np.isfinite(orientation)):
-            raise ValueError("Omega orientation must be a finite 3x3 matrix.")
 
-        omega_rotation = _matrix_to_rotvec(self._zero_orientation.T @ orientation)
-        robot_rotation = omega_rotation[self._omega_to_robot] * self.rotation_scale
+        omega_rotation = self.omega_rotation_delta(orientation)
+        robot_rotation = omega_rotation[self._omega_rotation_to_robot] * self.rotation_scale
         if np.linalg.norm(robot_rotation) < self.rotation_deadband_rad:
             robot_rotation.fill(0.0)
         robot_rotation = np.clip(robot_rotation, -self.max_rotation, self.max_rotation)

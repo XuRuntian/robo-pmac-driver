@@ -170,13 +170,14 @@ def main() -> None:
     _summarize_pairs("all", pairs)
 
     threshold = args.direction_threshold
+    eps = 1e-9
     directions = (
-        ("x positive", lambda row: _float(row, "applied_x_m") > threshold),
-        ("x negative", lambda row: _float(row, "applied_x_m") < -threshold),
-        ("z positive", lambda row: _float(row, "applied_z_m") > threshold),
-        ("z negative", lambda row: _float(row, "applied_z_m") < -threshold),
-        ("y positive", lambda row: _float(row, "applied_y_m") > threshold * 0.3),
-        ("y negative", lambda row: _float(row, "applied_y_m") < -threshold * 0.3),
+        ("x positive", lambda row: _float(row, "applied_x_m") >= threshold - eps),
+        ("x negative", lambda row: _float(row, "applied_x_m") <= -threshold + eps),
+        ("z positive", lambda row: _float(row, "applied_z_m") >= threshold - eps),
+        ("z negative", lambda row: _float(row, "applied_z_m") <= -threshold + eps),
+        ("y positive", lambda row: _float(row, "applied_y_m") >= threshold * 0.3 - eps),
+        ("y negative", lambda row: _float(row, "applied_y_m") <= -threshold * 0.3 + eps),
     )
     for label, predicate in directions:
         _summarize_pairs(

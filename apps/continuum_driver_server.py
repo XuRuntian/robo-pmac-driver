@@ -89,6 +89,41 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Optional CSV path for proximal/distal shape diagnostics.",
     )
+    parser.add_argument(
+        "--motor-debug-hz",
+        type=float,
+        default=0.0,
+        help=(
+            "Print compact motor target/feedback pulse diagnostics at this rate. "
+            "0 disables terminal diagnostic output."
+        ),
+    )
+    parser.add_argument(
+        "--motor-debug-min-tip-mm",
+        type=float,
+        default=0.5,
+        help="Suppress motor diagnostics while the dominant applied tip delta is below this value.",
+    )
+    parser.add_argument(
+        "--motor-debug-min-rotation-rad",
+        type=float,
+        default=0.01,
+        help="Suppress motor diagnostics while the dominant applied tip rotation is below this value.",
+    )
+    parser.add_argument(
+        "--motor-debug-change-pulses",
+        type=int,
+        default=1000,
+        help="Suppress repeated motor diagnostics until target pulses change by at least this much.",
+    )
+    parser.add_argument(
+        "--lock-linear-axis",
+        action="store_true",
+        help=(
+            "Keep the physical insertion/linear axis at the startup base pulse. "
+            "Useful for checking whether lateral commands are coupled through d/M5."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -308,6 +343,89 @@ def _print_shape_diagnostic(row: dict[str, float | int | bool]) -> None:
     )
 
 
+def _format_pulse_list(values: np.ndarray) -> str:
+    return "[" + ",".join(f"{int(value):+d}" for value in values) + "]"
+
+
+def _dominant_motor_label(values: np.ndarray) -> str:
+    index = int(np.argmax(np.abs(values)))
+    value = int(values[index])
+    return f"M{index + 1} {value:+d}"
+
+
+def _dominant_tip_label(applied_action: dict[str, float]) -> tuple[str, float]:
+    tip = np.asarray(
+        [
+            applied_action["tip_delta_x"],
+            applied_action["tip_delta_y"],
+            applied_action["tip_delta_z"],
+        ],
+        dtype=float,
+    )
+    index = int(np.argmax(np.abs(tip)))
+    value_mm = float(tip[index] * 1000.0)
+    sign = "+" if value_mm >= 0.0 else "-"
+    return f"{sign}{'XYZ'[index]}", abs(value_mm)
+
+
+def _dominant_rotation_label(applied_action: dict[str, float]) -> tuple[str, float]:
+    rotation = np.asarray(
+        [
+            applied_action["tip_delta_rx"],
+            applied_action["tip_delta_ry"],
+            applied_action["tip_delta_rz"],
+        ],
+        dtype=float,
+    )
+    index = int(np.argmax(np.abs(rotation)))
+    value = float(rotation[index])
+    sign = "+" if value >= 0.0 else "-"
+    return f"{sign}R{'XYZ'[index]}", abs(value)
+
+
+def _print_motor_diagnostic(
+    *,
+    applied_action: dict[str, float],
+    base_pulses: list[int],
+    last_target_pulses: list[int],
+    target_pulses: list[int],
+    feedback_pulses: list[int],
+) -> None:
+    base = np.asarray(base_pulses, dtype=int)
+    target = np.asarray(target_pulses, dtype=int)
+    feedback = np.asarray(feedback_pulses, dtype=int)
+    last_target = np.asarray(last_target_pulses, dtype=int)
+    target_delta = target - base
+    feedback_delta = feedback - base
+    target_step = target - last_target
+    tip_label, tip_mm = _dominant_tip_label(applied_action)
+    cmd_mm = [
+        float(applied_action["tip_delta_x"] * 1000.0),
+        float(applied_action["tip_delta_y"] * 1000.0),
+        float(applied_action["tip_delta_z"] * 1000.0),
+    ]
+    cmd_rot = [
+        float(applied_action["tip_delta_rx"]),
+        float(applied_action["tip_delta_ry"]),
+        float(applied_action["tip_delta_rz"]),
+    ]
+    rotation_label, rotation_rad = _dominant_rotation_label(applied_action)
+
+    print(
+        "motor | "
+        f"tip {tip_label} {tip_mm:5.1f}mm | "
+        f"rot {rotation_label} {rotation_rad:5.3f}rad | "
+        f"cmdXYZ=[{cmd_mm[0]:+5.1f},{cmd_mm[1]:+5.1f},{cmd_mm[2]:+5.1f}]mm | "
+        f"cmdR=[{cmd_rot[0]:+5.3f},{cmd_rot[1]:+5.3f},{cmd_rot[2]:+5.3f}] | "
+        f"dom tgt {_dominant_motor_label(target_delta)} "
+        f"fb {_dominant_motor_label(feedback_delta)} "
+        f"step {_dominant_motor_label(target_step)} | "
+        f"tgtΔ={_format_pulse_list(target_delta)} "
+        f"fbΔ={_format_pulse_list(feedback_delta)} "
+        f"step={_format_pulse_list(target_step)}"
+    )
+
+
 def main() -> None:
     args = parse_args()
     if args.watchdog_timeout <= 0.0:
@@ -320,6 +438,14 @@ def main() -> None:
         raise ValueError("--return-check-tolerance-pulses must be non-negative.")
     if args.shape_debug_hz < 0.0:
         raise ValueError("--shape-debug-hz must be non-negative.")
+    if args.motor_debug_hz < 0.0:
+        raise ValueError("--motor-debug-hz must be non-negative.")
+    if args.motor_debug_min_tip_mm < 0.0:
+        raise ValueError("--motor-debug-min-tip-mm must be non-negative.")
+    if args.motor_debug_min_rotation_rad < 0.0:
+        raise ValueError("--motor-debug-min-rotation-rad must be non-negative.")
+    if args.motor_debug_change_pulses < 0:
+        raise ValueError("--motor-debug-change-pulses must be non-negative.")
 
     continuum_cfg = load_continuum_config(args.config)
     interface_cfg = load_robot_interface_config(args.interface_config)
@@ -337,6 +463,8 @@ def main() -> None:
     ik = build_continuum_ik(continuum_cfg)
     if interface_cfg.command.orientation_enabled:
         ik.task_mode = "pos_z"
+    else:
+        ik.task_mode = "position"
     tendon_mapper = build_tendon_mapper(continuum_cfg)
     axis_mapper = ContinuumAxisMapper(
         pulses_per_rad=pmac_cfg.pulses_per_rad,
@@ -420,6 +548,11 @@ def main() -> None:
     shape_debug_interval = (
         float("inf") if args.shape_debug_hz <= 0.0 else 1.0 / args.shape_debug_hz
     )
+    next_motor_debug = time.perf_counter()
+    motor_debug_interval = (
+        float("inf") if args.motor_debug_hz <= 0.0 else 1.0 / args.motor_debug_hz
+    )
+    last_motor_debug_target: np.ndarray | None = None
     shape_log_file = None
     shape_log_writer = None
     shape_log_fields = None
@@ -435,8 +568,12 @@ def main() -> None:
         f"state=tcp://{args.bind_host}:{args.state_port}"
     )
     print(f"Base pulses: {base_pulses}")
+    if args.lock_linear_axis:
+        print("Linear insertion axis locked at startup base pulse for diagnostics.")
     if args.shape_debug_hz > 0.0:
         print(f"Shape diagnostics printing at {args.shape_debug_hz:.2f} Hz")
+    if args.motor_debug_hz > 0.0:
+        print(f"Motor diagnostics printing at {args.motor_debug_hz:.2f} Hz")
     if shape_log_file is not None:
         print(f"Shape diagnostics CSV: {args.shape_debug_csv}")
 
@@ -482,6 +619,12 @@ def main() -> None:
                 z_goal=None if r_goal is None else r_goal[:, 2],
             )
 
+            if args.lock_linear_axis:
+                pvt_command.target_pulses[linear_physical_idx] = int(
+                    base_pulses[linear_physical_idx]
+                )
+                pvt_command.velocities[linear_physical_idx] = 0.0
+
             linear_delta = (
                 pvt_command.target_pulses[linear_physical_idx]
                 - last_target_pulses[linear_physical_idx]
@@ -524,6 +667,7 @@ def main() -> None:
                     None if command_age_s is None else command_age_s * 1000.0
                 ),
                 "feedback_valid": feedback_valid,
+                "linear_axis_locked": args.lock_linear_axis,
                 "feedback_pulses": feedback_pulses,
                 "target_pulses": pvt_command.target_pulses,
                 "ik_error_m": float(np.linalg.norm(ik_error[:3])),
@@ -544,6 +688,30 @@ def main() -> None:
                 state_socket.send_json(state_message, flags=zmq.NOBLOCK)
             except zmq.Again:
                 pass
+
+            if args.motor_debug_hz > 0.0 and now >= next_motor_debug:
+                _, tip_mm = _dominant_tip_label(applied_action)
+                _, rotation_rad = _dominant_rotation_label(applied_action)
+                target_for_debug = np.asarray(pvt_command.target_pulses, dtype=int)
+                if (
+                    tip_mm >= args.motor_debug_min_tip_mm
+                    or rotation_rad >= args.motor_debug_min_rotation_rad
+                ):
+                    target_changed = (
+                        last_motor_debug_target is None
+                        or np.max(np.abs(target_for_debug - last_motor_debug_target))
+                        >= args.motor_debug_change_pulses
+                    )
+                    if target_changed:
+                        _print_motor_diagnostic(
+                            applied_action=applied_action,
+                            base_pulses=base_pulses,
+                            last_target_pulses=last_target_pulses,
+                            target_pulses=pvt_command.target_pulses,
+                            feedback_pulses=feedback_pulses,
+                        )
+                        last_motor_debug_target = target_for_debug.copy()
+                next_motor_debug = now + motor_debug_interval
 
             if (
                 args.shape_debug_hz > 0.0

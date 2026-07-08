@@ -126,6 +126,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-delta-y", type=float, default=0.0, help="Y travel limit from neutral, in meters.")
     parser.add_argument("--max-delta-z", type=float, default=0.01, help="Z travel limit from neutral, in meters.")
     parser.add_argument(
+        "--task-mode",
+        choices=("position", "pos-z"),
+        default="position",
+        help="IK task for keyboard teleop. position is best for XYZ axis checks.",
+    )
+    parser.add_argument(
         "--lock-linear-axis",
         action="store_true",
         help="Keep the physical linear axis at its startup position.",
@@ -151,7 +157,8 @@ def main() -> None:
     update_hz = continuum_cfg.control.update_hz
     update_interval = 1.0 / update_hz
     move_time_ms = update_interval * 1000.0
-    center_p, _ = ik.fk_tip()
+    center_p, center_r = ik.fk_tip()
+    ik.task_mode = "pos_z" if args.task_mode == "pos-z" else "position"
 
     robot = PMACRobotController(pmac_config) if args.execute else None
     kbd = KeyboardDevice()
@@ -198,7 +205,10 @@ def main() -> None:
 
             keys = kbd.get_state()
             p_goal = planner.solve(keys, update_interval)
-            command = pvt_mapper.build_command(p_goal)
+            command = pvt_mapper.build_command(
+                p_goal,
+                z_goal=center_r[:, 2] if args.task_mode == "pos-z" else None,
+            )
 
             if args.lock_linear_axis:
                 command.axis_targets[4] = 0.0
