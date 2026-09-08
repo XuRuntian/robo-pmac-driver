@@ -1,0 +1,12 @@
+{
+  "ethercat": {
+    "url": "https://gitlab.com/etherlab.org/ethercat.git",
+    "branch": "stable-1.6",
+    "revision": "2140c102058bfbabbe0677153850c51c9382343d"
+  },
+  "rtipc": {
+    "url": "https://gitlab.com/etherlab.org/rtipc.git",
+    "revision": "7a9a0a5dc9edeff6af45623dd8d3f6d4c374657c",
+    "patches": ["patches/rtipc-array-delete.patch", "patches/rtipc-close-directory.patch"]
+  }
+}

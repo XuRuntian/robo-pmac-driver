@@ -1,0 +1,25 @@
+diff --git a/src/Main.cpp b/src/Main.cpp
+--- a/src/Main.cpp
++++ b/src/Main.cpp
+@@ -38,6 +38,7 @@
+ #include <stdexcept>
+ #include <cstdlib>
+ #include <cstring>
++#include <memory>
+ #include <iostream>
+ #include <cerrno>
+ #include <sys/types.h>
+@@ -250,10 +251,11 @@ int Main::start ()
+     log_notice()
+         << "========= Looking for signals in other applications ==========";
+ 
+-    DIR *dirp = opendir(confDir.c_str());
++    std::unique_ptr<DIR, int(*)(DIR*)> dirp(
++            opendir(confDir.c_str()), closedir);
+     BB::Main *bb = 0;
+     while (dirp) {
+-        struct dirent *dp = readdir(dirp);
++        struct dirent *dp = readdir(dirp.get());
+         struct stat fstat;
+ 
+         if (!dp)

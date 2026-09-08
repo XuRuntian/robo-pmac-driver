@@ -1,0 +1,12 @@
+diff --git a/src/Group.cpp b/src/Group.cpp
+--- a/src/Group.cpp
++++ b/src/Group.cpp
+@@ -51,7 +51,7 @@ Group::~Group ()
+     for (RxPdoList::iterator it = rxPdo.begin(); it != rxPdo.end(); it++)
+         delete *it;
+ 
+-    delete copy_list;
++    delete[] copy_list;
+ 
+     log_notice() << "Finished group" << this;
+ }
