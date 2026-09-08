@@ -208,5 +208,5 @@ __marimo__/
 logs/
 PowerPMAC/
 outputs/
-tests/
+# Keep the offline regression tests under tests/ versioned.
 test/

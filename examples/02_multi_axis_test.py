@@ -84,7 +84,7 @@ def main():
         try:
             # 稍微等电机停稳
             time.sleep(0.5)
-            current_pos = robot.modbus.read_int32_array(address=10, count=5)
+            current_pos = robot.read_positions()
             print(f"📊 最终停止时五轴位置: {current_pos}")
         except Exception as e:
             print(f"⚠️ 读取最终位置失败: {e}")

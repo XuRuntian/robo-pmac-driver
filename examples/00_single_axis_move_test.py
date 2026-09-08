@@ -58,7 +58,7 @@ def main():
         time.sleep(move_time / 1000.0 + 0.5)
         
         # 4. 读取当前位置确认
-        pos_array = robot.modbus.read_int32_array(address=10, count=5)
+        pos_array = robot.read_positions()
         print(f"\n📊 运动完成！当前五轴位置: {pos_array}")
 
     except Exception as e:

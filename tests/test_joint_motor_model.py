@@ -112,8 +112,10 @@ def test_pvt_mapper_builds_five_axis_command() -> None:
         max_inner_steps=cfg.ik.max_inner_steps,
     )
 
-    center_p, _ = ik.fk_tip()
-    command = pvt_mapper.build_command(center_p + np.array([0.001, 0.0, 0.0]))
+    center_p, center_r = ik.fk_tip()
+    command = pvt_mapper.build_command(
+        center_p + np.array([0.001, 0.0, 0.0]), z_goal=center_r[:, 2],
+    )
 
     assert len(command.axis_targets) == 5
     assert len(command.target_pulses) == 5

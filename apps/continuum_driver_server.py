@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
+from dataclasses import replace
 import csv
+import signal
 import time
 from pathlib import Path
 from typing import Any
@@ -173,6 +176,10 @@ def _return_to_reference_pvt(
     move_time_ms = 1000.0 / update_hz
     start = np.asarray(start_pulses, dtype=float)
     reference = np.asarray(reference_pulses, dtype=float)
+    if 1.5 * abs(reference[4] - start[4]) / steps > robot.pvt_axis5_max_step - 1:
+        raise ValueError(
+            "Startup return would exceed the PLC axis-5 step limit; increase --return-duration."
+        )
     previous = start.copy()
     next_call = time.perf_counter()
 
@@ -198,29 +205,35 @@ def _return_to_reference_pvt(
         else:
             next_call = time.perf_counter()
 
-    for _ in range(3):
+    # Keep supplying a stationary tail while the priming queue catches up.
+    # Acceptance only confirms queue insertion, not physical completion.
+    tail_start = time.monotonic()
+    tail_next_call = time.perf_counter()
+    while True:
         robot.move_pvt_stream(
             target_pulses=reference_pulses,
-            velocities=[0.0, 0.0, 0.0, 0.0, 0.0],
+            velocities=[0.0] * 5,
             move_time=move_time_ms,
         )
-        time.sleep(1.0 / update_hz)
-
-    feedback = robot.read_positions()
-    if any(feedback):
+        feedback = robot.read_positions()
+        if not any(feedback):
+            raise RuntimeError("Invalid all-zero feedback during startup return.")
         errors = [actual - expected for actual, expected in zip(feedback, reference_pulses)]
-        print(f"Startup return feedback: {feedback} | errors={errors}")
-        if check_tolerance_pulses > 0 and any(
-            abs(error) > check_tolerance_pulses for error in errors
+        elapsed = time.monotonic() - tail_start
+        if elapsed >= 0.5 and (
+            check_tolerance_pulses == 0
+            or all(abs(error) <= check_tolerance_pulses for error in errors)
         ):
-            raise RuntimeError(
-                "Startup return finished outside tolerance: "
-                f"errors={errors}, tolerance={check_tolerance_pulses}"
-            )
-        return feedback
-
-    print("Startup return feedback read as all zero; keeping reference as startup feedback.")
-    return reference_pulses.copy()
+            print(f"Startup return feedback: {feedback} | errors={errors}")
+            return feedback
+        if elapsed >= 3.0:
+            raise RuntimeError(f"Startup return did not reach tolerance: errors={errors}")
+        tail_next_call += 1.0 / update_hz
+        remaining = tail_next_call - time.perf_counter()
+        if remaining > 0:
+            time.sleep(remaining)
+        else:
+            tail_next_call = time.perf_counter()
 
 
 def _shape_from_logical_axes(tendon_mapper: Any, logical_axes: list[float]) -> dict[str, float]:
@@ -426,6 +439,10 @@ def _print_motor_diagnostic(
     )
 
 
+def _request_shutdown(signum, frame):
+    raise KeyboardInterrupt
+
+
 def main() -> None:
     args = parse_args()
     if args.watchdog_timeout <= 0.0:
@@ -474,288 +491,303 @@ def main() -> None:
     )
     center_p, center_r = ik.fk_tip()
 
-    robot = PMACRobotController(pmac_cfg) if args.execute else None
-    if robot is not None:
-        robot.safe_boot_and_home()
-        current_pulses = robot.base_positions.copy()
-        if interface_cfg.initial_position.reject_all_zero_feedback and not any(current_pulses):
-            raise RuntimeError("PMAC returned an invalid all-zero startup position.")
-
-        if args.return_to_reference_on_start:
-            if interface_cfg.initial_position.reference_pulses is None:
-                raise ValueError(
-                    "--return-to-reference-on-start requires initial_position.reference_pulses."
-                )
-            base_pulses = list(interface_cfg.initial_position.reference_pulses)
-            current_pulses = _return_to_reference_pvt(
-                robot,
-                start_pulses=current_pulses,
-                reference_pulses=base_pulses,
-                update_hz=update_hz,
-                duration_s=args.return_duration,
-                check_tolerance_pulses=args.return_check_tolerance_pulses,
-            )
-        else:
-            base_pulses = interface_cfg.initial_position.resolve_reference(current_pulses)
-        robot.base_positions = base_pulses.copy()
-    else:
-        base_pulses = list(
-            interface_cfg.initial_position.reference_pulses
-            or (0, 0, 0, 0, 0)
-        )
-        current_pulses = base_pulses.copy()
-        if args.return_to_reference_on_start:
-            print("Dry-run return-to-reference: using configured reference as base pulses.")
-
-    pvt_mapper = ContinuumPVTMapper(
-        ik=ik,
-        tendon_mapper=tendon_mapper,
-        axis_mapper=axis_mapper,
-        base_pulses=base_pulses,
-        update_interval_s=update_interval,
-        max_inner_steps=continuum_cfg.ik.max_inner_steps,
-    )
-    command_filter = TipCommandFilter(interface_cfg.command, update_interval)
-    linear_physical_idx = axis_mapper.axis_order[4]
-    max_linear_step_pulses = (
-        abs(pmac_cfg.pulses_per_meter * interface_cfg.command.max_speed_m_s[1] * update_interval)
-    )
-
-    context = zmq.Context()
-    command_socket = context.socket(zmq.PULL)
-    command_socket.setsockopt(zmq.CONFLATE, 1)
-    command_socket.setsockopt(zmq.RCVHWM, 1)
-    command_socket.setsockopt(zmq.LINGER, 0)
-    command_socket.bind(f"tcp://{args.bind_host}:{args.command_port}")
-
-    state_socket = context.socket(zmq.PUSH)
-    state_socket.setsockopt(zmq.CONFLATE, 1)
-    state_socket.setsockopt(zmq.SNDHWM, 1)
-    state_socket.setsockopt(zmq.LINGER, 0)
-    state_socket.bind(f"tcp://{args.bind_host}:{args.state_port}")
-
-    last_command_time: float | None = None
-    watchdog_holding = True
-    rejected_commands = 0
-    last_command_error = ""
-    feedback_valid = True
-    feedback_pulses = current_pulses.copy()
-    last_target_pulses = base_pulses.copy()
-    next_feedback = time.perf_counter()
-    next_call = time.perf_counter()
-    state_sequence = 0
-    next_shape_debug = time.perf_counter()
-    shape_debug_interval = (
-        float("inf") if args.shape_debug_hz <= 0.0 else 1.0 / args.shape_debug_hz
-    )
-    next_motor_debug = time.perf_counter()
-    motor_debug_interval = (
-        float("inf") if args.motor_debug_hz <= 0.0 else 1.0 / args.motor_debug_hz
-    )
-    last_motor_debug_target: np.ndarray | None = None
-    shape_log_file = None
-    shape_log_writer = None
-    shape_log_fields = None
-    if args.shape_debug_csv:
-        shape_log_path = Path(args.shape_debug_csv)
-        shape_log_path.parent.mkdir(parents=True, exist_ok=True)
-        shape_log_file = shape_log_path.open("w", newline="", encoding="utf-8")
-
-    mode = "EXECUTE" if args.execute else "DRY-RUN"
-    print(
-        f"Continuum driver server [{mode}] | control={update_hz} Hz | "
-        f"commands=tcp://{args.bind_host}:{args.command_port} | "
-        f"state=tcp://{args.bind_host}:{args.state_port}"
-    )
-    print(f"Base pulses: {base_pulses}")
-    if args.lock_linear_axis:
-        print("Linear insertion axis locked at startup base pulse for diagnostics.")
-    if args.shape_debug_hz > 0.0:
-        print(f"Shape diagnostics printing at {args.shape_debug_hz:.2f} Hz")
-    if args.motor_debug_hz > 0.0:
-        print(f"Motor diagnostics printing at {args.motor_debug_hz:.2f} Hz")
-    if shape_log_file is not None:
-        print(f"Shape diagnostics CSV: {args.shape_debug_csv}")
-
-    try:
-        start_time = time.perf_counter()
-        while True:
-            now = time.perf_counter()
-            message = _latest_message(command_socket)
-            if message is not None:
-                try:
-                    kind, action = parse_control_message(message)
-                    if kind == "hold":
-                        command_filter.hold()
-                        watchdog_holding = True
-                    else:
-                        assert action is not None
-                        command_filter.set_command(action)
-                        watchdog_holding = False
-                    last_command_time = now
-                    last_command_error = ""
-                except (KeyError, TypeError, ValueError) as exc:
-                    rejected_commands += 1
-                    last_command_error = str(exc)
-
-            command_age_s = None if last_command_time is None else now - last_command_time
-            if (
-                not watchdog_holding
-                and command_age_s is not None
-                and command_age_s > args.watchdog_timeout
-            ):
-                command_filter.hold()
-                watchdog_holding = True
-
-            applied_delta = command_filter.step()
-            applied_rotation = command_filter.applied_rotation
-            r_goal = (
-                center_r @ rotvec_to_matrix(applied_rotation)
-                if interface_cfg.command.orientation_enabled
-                else None
-            )
-            pvt_command = pvt_mapper.build_command(
-                center_p + applied_delta,
-                z_goal=None if r_goal is None else r_goal[:, 2],
-            )
-
-            if args.lock_linear_axis:
-                pvt_command.target_pulses[linear_physical_idx] = int(
-                    base_pulses[linear_physical_idx]
-                )
-                pvt_command.velocities[linear_physical_idx] = 0.0
-
-            linear_delta = (
-                pvt_command.target_pulses[linear_physical_idx]
-                - last_target_pulses[linear_physical_idx]
-            )
-            linear_delta = float(
-                np.clip(linear_delta, -max_linear_step_pulses, max_linear_step_pulses)
-            )
-            pvt_command.target_pulses[linear_physical_idx] = int(
-                round(last_target_pulses[linear_physical_idx] + linear_delta)
-            )
-            pvt_command.velocities[linear_physical_idx] = linear_delta / (
-                update_interval * 1000.0
-            )
-
-            if robot is not None:
-                robot.move_pvt_stream(
-                    target_pulses=pvt_command.target_pulses,
-                    velocities=pvt_command.velocities,
-                    move_time=update_interval * 1000.0,
-                )
-                if now >= next_feedback:
-                    candidate_feedback = robot.read_positions()
-                    if any(candidate_feedback):
-                        feedback_pulses = candidate_feedback
-                        feedback_valid = True
-                    else:
-                        feedback_valid = False
-                    next_feedback = now + feedback_interval
-            else:
-                feedback_pulses = list(pvt_command.target_pulses)
-
-            state = _state_from_feedback(axis_mapper, base_pulses, feedback_pulses)
-            ik_error = pvt_command.ik_result.error
-            applied_action = command_filter.applied_command()
-            status = {
-                "execute": args.execute,
-                "control_hz": update_hz,
-                "watchdog_holding": watchdog_holding,
-                "command_age_ms": (
-                    None if command_age_s is None else command_age_s * 1000.0
-                ),
-                "feedback_valid": feedback_valid,
-                "linear_axis_locked": args.lock_linear_axis,
-                "feedback_pulses": feedback_pulses,
-                "target_pulses": pvt_command.target_pulses,
-                "ik_error_m": float(np.linalg.norm(ik_error[:3])),
-                "ik_error_norm": float(np.linalg.norm(ik_error)),
-                "ik_orientation_error_weighted": (
-                    float(np.linalg.norm(ik_error[3:])) if ik_error.size > 3 else 0.0
-                ),
-                "rejected_commands": rejected_commands,
-                "last_command_error": last_command_error,
-            }
-            state_message = build_state_message(
-                state_sequence,
-                state,
-                status=status,
-                applied_action=applied_action,
-            )
-            try:
-                state_socket.send_json(state_message, flags=zmq.NOBLOCK)
-            except zmq.Again:
-                pass
-
-            if args.motor_debug_hz > 0.0 and now >= next_motor_debug:
-                _, tip_mm = _dominant_tip_label(applied_action)
-                _, rotation_rad = _dominant_rotation_label(applied_action)
-                target_for_debug = np.asarray(pvt_command.target_pulses, dtype=int)
-                if (
-                    tip_mm >= args.motor_debug_min_tip_mm
-                    or rotation_rad >= args.motor_debug_min_rotation_rad
-                ):
-                    target_changed = (
-                        last_motor_debug_target is None
-                        or np.max(np.abs(target_for_debug - last_motor_debug_target))
-                        >= args.motor_debug_change_pulses
-                    )
-                    if target_changed:
-                        _print_motor_diagnostic(
-                            applied_action=applied_action,
-                            base_pulses=base_pulses,
-                            last_target_pulses=last_target_pulses,
-                            target_pulses=pvt_command.target_pulses,
-                            feedback_pulses=feedback_pulses,
-                        )
-                        last_motor_debug_target = target_for_debug.copy()
-                next_motor_debug = now + motor_debug_interval
-
-            if (
-                args.shape_debug_hz > 0.0
-                and now >= next_shape_debug
-            ) or shape_log_file is not None:
-                shape_row = _build_shape_diagnostic(
-                    t_s=now - start_time,
-                    state_sequence=state_sequence,
-                    axis_mapper=axis_mapper,
-                    tendon_mapper=tendon_mapper,
-                    base_pulses=base_pulses,
-                    pvt_command=pvt_command,
-                    feedback_pulses=feedback_pulses,
-                    applied_action=applied_action,
-                    watchdog_holding=watchdog_holding,
-                )
-                if args.shape_debug_hz > 0.0 and now >= next_shape_debug:
-                    _print_shape_diagnostic(shape_row)
-                    next_shape_debug = now + shape_debug_interval
-                if shape_log_file is not None:
-                    if shape_log_writer is None:
-                        shape_log_fields = list(shape_row)
-                        shape_log_writer = csv.DictWriter(shape_log_file, fieldnames=shape_log_fields)
-                        shape_log_writer.writeheader()
-                    shape_log_writer.writerow(shape_row)
-
-            state_sequence += 1
-            last_target_pulses = list(pvt_command.target_pulses)
-            next_call += update_interval
-            sleep_time = next_call - time.perf_counter()
-            if sleep_time > 0.0:
-                time.sleep(sleep_time)
-            else:
-                next_call = time.perf_counter()
-    except KeyboardInterrupt:
-        print("\nContinuum driver server stopped.")
-    finally:
+    with ExitStack() as cleanup:
+        old_sigterm = signal.signal(signal.SIGTERM, _request_shutdown)
+        cleanup.callback(signal.signal, signal.SIGTERM, old_sigterm)
+        robot = PMACRobotController(pmac_cfg) if args.execute else None
         if robot is not None:
-            robot.close()
+            cleanup.callback(robot.close)
+        if robot is not None:
+            robot.safe_boot_and_home()
+            current_pulses = robot.base_positions.copy()
+            if interface_cfg.initial_position.reject_all_zero_feedback and not any(current_pulses):
+                raise RuntimeError("PMAC returned an invalid all-zero startup position.")
+
+            if args.return_to_reference_on_start:
+                if interface_cfg.initial_position.reference_pulses is None:
+                    raise ValueError(
+                        "--return-to-reference-on-start requires initial_position.reference_pulses."
+                    )
+                base_pulses = list(interface_cfg.initial_position.reference_pulses)
+                current_pulses = _return_to_reference_pvt(
+                    robot,
+                    start_pulses=current_pulses,
+                    reference_pulses=base_pulses,
+                    update_hz=update_hz,
+                    duration_s=args.return_duration,
+                    check_tolerance_pulses=args.return_check_tolerance_pulses,
+                )
+            else:
+                base_pulses = interface_cfg.initial_position.resolve_reference(current_pulses)
+            robot.base_positions = base_pulses.copy()
+        else:
+            base_pulses = list(
+                interface_cfg.initial_position.reference_pulses
+                or (0, 0, 0, 0, 0)
+            )
+            current_pulses = base_pulses.copy()
+            if args.return_to_reference_on_start:
+                print("Dry-run return-to-reference: using configured reference as base pulses.")
+
+        pvt_mapper = ContinuumPVTMapper(
+            ik=ik,
+            tendon_mapper=tendon_mapper,
+            axis_mapper=axis_mapper,
+            base_pulses=base_pulses,
+            update_interval_s=update_interval,
+            max_inner_steps=continuum_cfg.ik.max_inner_steps,
+        )
+        command_filter = TipCommandFilter(interface_cfg.command, update_interval)
+        linear_physical_idx = axis_mapper.axis_order[4]
+        max_linear_step_pulses = (
+            abs(pmac_cfg.pulses_per_meter * interface_cfg.command.max_speed_m_s[1] * update_interval)
+        )
+        if robot is not None:
+            max_linear_step_pulses = min(max_linear_step_pulses, robot.pvt_axis5_max_step)
+
+        context = zmq.Context()
+        cleanup.callback(context.term)
+        command_socket = context.socket(zmq.PULL)
+        cleanup.callback(command_socket.close)
+        command_socket.setsockopt(zmq.CONFLATE, 1)
+        command_socket.setsockopt(zmq.RCVHWM, 1)
+        command_socket.setsockopt(zmq.LINGER, 0)
+        command_socket.bind(f"tcp://{args.bind_host}:{args.command_port}")
+
+        state_socket = context.socket(zmq.PUSH)
+        cleanup.callback(state_socket.close)
+        state_socket.setsockopt(zmq.CONFLATE, 1)
+        state_socket.setsockopt(zmq.SNDHWM, 1)
+        state_socket.setsockopt(zmq.LINGER, 0)
+        state_socket.bind(f"tcp://{args.bind_host}:{args.state_port}")
+
+        last_command_time: float | None = None
+        watchdog_holding = True
+        rejected_commands = 0
+        last_command_error = ""
+        feedback_valid = True
+        feedback_pulses = current_pulses.copy()
+        last_target_pulses = current_pulses.copy()
+        previous_command = None
+        next_feedback = time.perf_counter()
+        next_call = time.perf_counter()
+        state_sequence = 0
+        next_shape_debug = time.perf_counter()
+        shape_debug_interval = (
+            float("inf") if args.shape_debug_hz <= 0.0 else 1.0 / args.shape_debug_hz
+        )
+        next_motor_debug = time.perf_counter()
+        motor_debug_interval = (
+            float("inf") if args.motor_debug_hz <= 0.0 else 1.0 / args.motor_debug_hz
+        )
+        last_motor_debug_target: np.ndarray | None = None
+        shape_log_file = None
+        shape_log_writer = None
+        shape_log_fields = None
+        if args.shape_debug_csv:
+            shape_log_path = Path(args.shape_debug_csv)
+            shape_log_path.parent.mkdir(parents=True, exist_ok=True)
+            shape_log_file = shape_log_path.open("w", newline="", encoding="utf-8")
+            cleanup.callback(shape_log_file.close)
+
+        mode = "EXECUTE" if args.execute else "DRY-RUN"
+        print(
+            f"Continuum driver server [{mode}] | control={update_hz} Hz | "
+            f"commands=tcp://{args.bind_host}:{args.command_port} | "
+            f"state=tcp://{args.bind_host}:{args.state_port}"
+        )
+        print(f"Base pulses: {base_pulses}")
+        if args.lock_linear_axis:
+            print("Linear insertion axis locked at startup base pulse for diagnostics.")
+        if args.shape_debug_hz > 0.0:
+            print(f"Shape diagnostics printing at {args.shape_debug_hz:.2f} Hz")
+        if args.motor_debug_hz > 0.0:
+            print(f"Motor diagnostics printing at {args.motor_debug_hz:.2f} Hz")
         if shape_log_file is not None:
-            shape_log_file.close()
-        command_socket.close()
-        state_socket.close()
-        context.term()
+            print(f"Shape diagnostics CSV: {args.shape_debug_csv}")
+
+        try:
+            start_time = time.perf_counter()
+            while True:
+                now = time.perf_counter()
+                message = _latest_message(command_socket)
+                if message is not None:
+                    try:
+                        kind, action = parse_control_message(message)
+                        if kind == "hold":
+                            command_filter.hold()
+                            watchdog_holding = True
+                        else:
+                            assert action is not None
+                            command_filter.set_command(action)
+                            watchdog_holding = False
+                        last_command_time = now
+                        last_command_error = ""
+                    except (KeyError, TypeError, ValueError) as exc:
+                        rejected_commands += 1
+                        last_command_error = str(exc)
+
+                command_age_s = None if last_command_time is None else now - last_command_time
+                if (
+                    not watchdog_holding
+                    and command_age_s is not None
+                    and command_age_s > args.watchdog_timeout
+                ):
+                    command_filter.hold()
+                    watchdog_holding = True
+
+                applied_delta = command_filter.step()
+                applied_rotation = command_filter.applied_rotation
+                r_goal = (
+                    center_r @ rotvec_to_matrix(applied_rotation)
+                    if interface_cfg.command.orientation_enabled
+                    else None
+                )
+                if watchdog_holding and previous_command is not None:
+                    pvt_command = replace(
+                        previous_command,
+                        target_pulses=list(last_target_pulses),
+                        velocities=[0.0] * 5,
+                    )
+                else:
+                    pvt_command = pvt_mapper.build_command(
+                        center_p + applied_delta,
+                        z_goal=None if r_goal is None else r_goal[:, 2],
+                    )
+
+                if args.lock_linear_axis:
+                    pvt_command.target_pulses[linear_physical_idx] = int(
+                        base_pulses[linear_physical_idx]
+                    )
+                    pvt_command.velocities[linear_physical_idx] = 0.0
+
+                linear_delta = (
+                    pvt_command.target_pulses[linear_physical_idx]
+                    - last_target_pulses[linear_physical_idx]
+                )
+                linear_delta = float(
+                    np.clip(linear_delta, -max_linear_step_pulses, max_linear_step_pulses)
+                )
+                pvt_command.target_pulses[linear_physical_idx] = int(
+                    round(last_target_pulses[linear_physical_idx] + linear_delta)
+                )
+                pvt_command.velocities[linear_physical_idx] = linear_delta / (
+                    update_interval * 1000.0
+                )
+
+                if robot is not None:
+                    robot.move_pvt_stream(
+                        target_pulses=pvt_command.target_pulses,
+                        velocities=pvt_command.velocities,
+                        move_time=update_interval * 1000.0,
+                    )
+                    if now >= next_feedback:
+                        candidate_feedback = robot.read_positions()
+                        if any(candidate_feedback):
+                            feedback_pulses = candidate_feedback
+                            feedback_valid = True
+                        else:
+                            raise RuntimeError("PMAC returned invalid all-zero feedback during motion.")
+                        next_feedback = now + feedback_interval
+                else:
+                    feedback_pulses = list(pvt_command.target_pulses)
+
+                pvt_mapper.commit_pulses(pvt_command.target_pulses)
+                commanded_tip, _ = ik.fk_tip()
+                previous_command = pvt_command
+                state = _state_from_feedback(axis_mapper, base_pulses, feedback_pulses)
+                ik_error = pvt_command.ik_result.error
+                applied_action = command_filter.applied_command()
+                status = {
+                    "execute": args.execute,
+                    "control_hz": update_hz,
+                    "watchdog_holding": watchdog_holding,
+                    "command_age_ms": (
+                        None if command_age_s is None else command_age_s * 1000.0
+                    ),
+                    "feedback_valid": feedback_valid,
+                    "linear_axis_locked": args.lock_linear_axis,
+                    "feedback_pulses": feedback_pulses,
+                    "target_pulses": pvt_command.target_pulses,
+                    "ik_error_m": float(np.linalg.norm(ik_error[:3])),
+                    "commanded_tip_error_m": float(np.linalg.norm(center_p + applied_delta - commanded_tip)),
+                    "ik_error_norm": float(np.linalg.norm(ik_error)),
+                    "ik_orientation_error_weighted": (
+                        float(np.linalg.norm(ik_error[3:])) if ik_error.size > 3 else 0.0
+                    ),
+                    "rejected_commands": rejected_commands,
+                    "last_command_error": last_command_error,
+                }
+                state_message = build_state_message(
+                    state_sequence,
+                    state,
+                    status=status,
+                    applied_action=applied_action,
+                )
+                try:
+                    state_socket.send_json(state_message, flags=zmq.NOBLOCK)
+                except zmq.Again:
+                    pass
+
+                if args.motor_debug_hz > 0.0 and now >= next_motor_debug:
+                    _, tip_mm = _dominant_tip_label(applied_action)
+                    _, rotation_rad = _dominant_rotation_label(applied_action)
+                    target_for_debug = np.asarray(pvt_command.target_pulses, dtype=int)
+                    if (
+                        tip_mm >= args.motor_debug_min_tip_mm
+                        or rotation_rad >= args.motor_debug_min_rotation_rad
+                    ):
+                        target_changed = (
+                            last_motor_debug_target is None
+                            or np.max(np.abs(target_for_debug - last_motor_debug_target))
+                            >= args.motor_debug_change_pulses
+                        )
+                        if target_changed:
+                            _print_motor_diagnostic(
+                                applied_action=applied_action,
+                                base_pulses=base_pulses,
+                                last_target_pulses=last_target_pulses,
+                                target_pulses=pvt_command.target_pulses,
+                                feedback_pulses=feedback_pulses,
+                            )
+                            last_motor_debug_target = target_for_debug.copy()
+                    next_motor_debug = now + motor_debug_interval
+
+                if (
+                    args.shape_debug_hz > 0.0
+                    and now >= next_shape_debug
+                ) or shape_log_file is not None:
+                    shape_row = _build_shape_diagnostic(
+                        t_s=now - start_time,
+                        state_sequence=state_sequence,
+                        axis_mapper=axis_mapper,
+                        tendon_mapper=tendon_mapper,
+                        base_pulses=base_pulses,
+                        pvt_command=pvt_command,
+                        feedback_pulses=feedback_pulses,
+                        applied_action=applied_action,
+                        watchdog_holding=watchdog_holding,
+                    )
+                    if args.shape_debug_hz > 0.0 and now >= next_shape_debug:
+                        _print_shape_diagnostic(shape_row)
+                        next_shape_debug = now + shape_debug_interval
+                    if shape_log_file is not None:
+                        if shape_log_writer is None:
+                            shape_log_fields = list(shape_row)
+                            shape_log_writer = csv.DictWriter(shape_log_file, fieldnames=shape_log_fields)
+                            shape_log_writer.writeheader()
+                        shape_log_writer.writerow(shape_row)
+
+                state_sequence += 1
+                last_target_pulses = list(pvt_command.target_pulses)
+                next_call += update_interval
+                sleep_time = next_call - time.perf_counter()
+                if sleep_time > 0.0:
+                    time.sleep(sleep_time)
+                else:
+                    next_call = time.perf_counter()
+        except KeyboardInterrupt:
+            print("\nContinuum driver server stopped.")
 
 
 if __name__ == "__main__":

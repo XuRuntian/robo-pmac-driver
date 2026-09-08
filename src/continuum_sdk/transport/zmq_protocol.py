@@ -36,6 +36,8 @@ def build_hold_message(sequence: int) -> dict[str, Any]:
 
 
 def parse_control_message(message: Mapping[str, Any]) -> tuple[ControlMessageKind, TipPoseCommand | None]:
+    if not isinstance(message, Mapping):
+        raise ValueError("Control message must be a mapping.")
     version = int(message.get("protocol_version", -1))
     if version != PROTOCOL_VERSION:
         raise ValueError(f"Unsupported protocol version: {version}")

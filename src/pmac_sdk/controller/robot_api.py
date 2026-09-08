@@ -1,76 +1,79 @@
 from ..core.config_model import PMACConfig
 from ..comms.modbus_client import ModbusClient32Bit
 from ..hardware.ssh_manager import PMACHardwareManager
-import time # 新增 time 导入，供休眠使用
+import logging
+import math
+from .protocol import PMACProtocol
+
+logger = logging.getLogger(__name__)
 
 class PMACRobotController:
-    """具身智能上层控制接口 (严格遵循原机通信逻辑)"""
+    """Five-axis PMAC control using acknowledged protocol-v2 mailboxes."""
     def __init__(self, config: PMACConfig):
         self.config = config
-        self.modbus = ModbusClient32Bit(config.ip, config.modbus_port, config.slave_id)
+        self.modbus = ModbusClient32Bit(config.ip, config.modbus_port, config.slave_id, config.modbus_timeout_s)
         self.hw_manager = PMACHardwareManager(config.ip, config.ssh_user, config.ssh_pass)
         self.base_positions = [0, 0, 0, 0, 0]
+        self.protocol = PMACProtocol(self.modbus, config.handshake_timeout_s, config.poll_interval_s)
+        self._session_active = False
+        self._boot_requested = False
+        self._stream_faulted = False
+        self.pvt_axis5_max_step = None
 
     def hardware_boot(self):
-        """执行硬件级别的上电和复位"""
-        self.hw_manager.init_motors()
+        """Request the shared PLC reset; connect_and_home waits for completion."""
+        if not self.modbus.connect():
+            raise ConnectionError("Cannot connect to PMAC Modbus.")
+        self._session_active = True
+        self.protocol.write(216, [0])
+        self.hw_manager.reset_with_plc4()
+        self._boot_requested = True
 
     def connect_and_home(self):
-        if not self.modbus.connect():
-            raise ConnectionError("❌ 无法连接到 PMAC，请检查网络设置。")
-        
-        # 1. 强制清空运动触发寄存器 (Modbus 地址 100 对应 PMAC P123)
-        self.modbus.write_int32_array(address=100, values=[0])
-        
-        # 2. 读取当前真实位置 (已删去你原代码中重复粘贴的冗余部分)
-        res = self.modbus.client.read_holding_registers(address=10, count=10, unit=self.config.slave_id)
-        if not res.isError():
-            regs = res.registers
-            for i in range(5):
-                self.base_positions[i] = self.modbus._registers_to_int32(regs[i*2], regs[i*2+1])
-                
-        # 3. 将当前位置立刻作为"目标位置"写回 Modbus 地址 0，防止 PLC 读到默认的 0
-        self.modbus.write_int32_array(address=0, values=self.base_positions)
-        
-        print(f"✅ 系统就绪，基准位置已锁定: {self.base_positions}")
-        
+        """Capture a fresh encoder reference. This does not physically home axes."""
+        if not self._boot_requested:
+            self.hardware_boot()
+        self.protocol.wait(
+            lambda: self.modbus.read_int32_array(216, 1)[0] == 1,
+            "PLC reset completion", timeout_s=10.0,
+        )
+        self.protocol.status()  # Reject mismatched controller firmware.
+        self.pvt_axis5_max_step = self.modbus.read_int32_array(218, 1)[0]
+        if self.pvt_axis5_max_step <= 0:
+            raise RuntimeError("PMAC reported an invalid axis-5 PVT step limit.")
+        current = self.read_positions()
+        if not any(current):
+            raise RuntimeError("PMAC returned an all-zero startup reference.")
+        self.protocol.write(0, current)
+        self.protocol.write(40, [200000])
+        self.protocol.write(50, [0] * 5)
+        self.base_positions = current
+        self.hw_manager.start_prog()
+        self.protocol.wait(
+            lambda: self.protocol.status().ready == 1,
+            "PVT program startup", timeout_s=self.config.startup_timeout_s,
+        )
+        self._stream_faulted = False
+        self._boot_requested = False
+        print(f"PMAC ready; fresh encoder reference: {self.base_positions}")
+
     def safe_boot_and_home(self, use_plc4_reset: bool = False):
-        """
-        安全的整合启动序列：
-        1. SSH 电机上电
-        2. Modbus 连接获取真实位置
-        3. 清洗 PVT 缓冲区（防止暴走）
-        4. 启动 PMAC 运动程序
-        """
-        import time
-        
-        # 1. 硬件准备
-        if use_plc4_reset:
-            self.hw_manager.reset_with_plc4()
-        else:
-            self.hw_manager.prepare_motors()
-        time.sleep(1.0)
-        
-        # 2. 连接 Modbus，并读取电机的真实物理位置
-        # 注意：这里调用的是下面那个底层的 connect_and_home 函数
-        self.connect_and_home() 
-        current_positions = self.base_positions.copy()
-        
-        # 3. 清洗 Modbus 缓冲区
-        print("🧽 [阶段2] 正在清洗 PVT 数据缓冲区...")
-        self.modbus.write_int32_array(address=0, values=current_positions)
-        self.modbus.write_int32_array(address=50, values=[0, 0, 0, 0, 0])
-        self.modbus.write_int32_array(address=200, values=[0])
-        print(f"✅ 缓冲区已同步至安全位置: {current_positions}")
-        
-        # 4. 启动 PMAC 内的运动程序
-        if not use_plc4_reset:
-            self.hw_manager.start_prog()
+        """Both legacy choices now use the same acknowledged PLC reset path."""
+        try:
+            self.hardware_boot()
+            self.connect_and_home()
+        except Exception:
+            try:
+                self.close()
+            except Exception:
+                logger.exception("PMAC cleanup also failed after startup failure")
+            raise
+
     def move_joints(self, target_pulses: list, move_time: int = 500, accel: int = 100, scurve: int = 50):
-        """核心底层：只下发原版的地址 0 和 地址 100，并新增动态时间参数"""
-        self.modbus.write_int32_array(address=0, values=target_pulses)
-        self.modbus.write_int32_array(address=20, values=[move_time, accel, scurve])
-        self.modbus.write_int32_array(address=100, values=[1])
+        raise NotImplementedError(
+            "The paired PLC does not implement the legacy point-to-point protocol. "
+            "Use a timed trajectory through move_pvt_stream()."
+        )
 
     def move_single_joint_angle(self, joint_idx: int, angle: float, move_time: int = 500, accel: int = 100, scurve: int = 50):
         """按照你的原版逻辑换算角度，增加速度控制和【方向系数】"""
@@ -89,17 +92,18 @@ class PMACRobotController:
         self.move_joints(targets, move_time=move_time, accel=accel, scurve=scurve)
         
     def set_current_as_absolute_zero(self):
-        current_pos = self.modbus.read_int32_array(address=10, count=5)
+        current_pos = self.read_positions()
         self.config.zero_offsets = current_pos
         self.base_positions = current_pos
         print(f"✅ 已标定绝对零点偏置: {self.config.zero_offsets}")
 
     def read_positions(self) -> list[int]:
-        return self.modbus.read_int32_array(address=10, count=5)
+        positions, _ = self.protocol.snapshot()
+        return positions
 
     def move_to_absolute_angle(self, joint_idx: int, absolute_angle: float, move_time: int = 500, accel: int = 100, scurve: int = 50):
         """绝对控制：增加【方向系数】"""
-        current_pos = self.modbus.read_int32_array(address=10, count=5)
+        current_pos = self.read_positions()
         targets = list(current_pos)
         
         # 引入方向系数
@@ -114,56 +118,100 @@ class PMACRobotController:
         self.move_joints(targets, move_time=move_time, accel=accel, scurve=scurve)
         
     def move_pvt_stream(self, target_pulses: list, velocities: list, move_time: float):
-        """
-        专门适配 PVT 环形缓冲区的流式下发接口
-        :param target_pulses: 5个轴的目标绝对脉冲列表
-        :param velocities: 5个轴的目标瞬时速度 (脉冲/ms)
-        :param move_time: 本段轨迹执行的时间 (ms)
-        """
-        pos_scale = 1.0 # 必须与 PMAC global definitions.pmh 一致[cite: 6]
-        vel_time_scale = 10000.0
-        # 1. 缩放并转换数据为 32位整数
-        scaled_pos = [int(p * pos_scale) for p in target_pulses]
-        scaled_vel = [int(v * vel_time_scale) for v in velocities]
-        scaled_time = int(move_time * vel_time_scale)
-        
-        # 2. 写入位置 (地址 0, 4, 8, 12, 16)[cite: 4]
-        self.modbus.write_int32_array(address=0, values=scaled_pos)
-        
-        # 3. 写入时间 (地址 40)[cite: 4]
-        self.modbus.write_int32_array(address=40, values=[scaled_time])
-        
-        # 4. 写入速度 (地址 50, 54, 58, 62, 66)[cite: 4]
-        self.modbus.write_int32_array(address=50, values=scaled_vel)
-        
-        # 5. 发送触发信号 (地址 200)[cite: 4]
-        # 注意：PMAC PLC 2 处理完后会自动将其置零[cite: 4]
-        self.modbus.write_int32_array(address=200, values=[1])
-    
+        """Submit one acknowledged frame: counts, counts/ms and milliseconds."""
+        if self._stream_faulted:
+            raise RuntimeError("PVT is faulted; a complete restart is required.")
+        if len(target_pulses) != 5 or len(velocities) != 5:
+            raise ValueError("PVT requires exactly five positions and velocities.")
+        if not all(math.isfinite(v) for v in [*target_pulses, *velocities, move_time]):
+            raise ValueError("PVT values must be finite.")
+        if not 5.0 < move_time <= 500.0:
+            raise ValueError("PVT segment duration must be >5 and <=500 ms.")
+        positions = [int(p) for p in target_pulses]
+        speeds = [int(v * 10000.0) for v in velocities]
+        duration = int(move_time * 10000.0)
+        if duration <= 50000:
+            raise ValueError("PVT duration rounds to <=5 ms in the wire format.")
+        for value in [*positions, *speeds, duration]:
+            if not -(2**31) <= value < 2**31:
+                raise ValueError("Scaled PVT value exceeds signed int32 range.")
+        try:
+            self.protocol.submit_pvt(positions, speeds, duration)
+        except Exception:
+            self._stream_faulted = True
+            try:
+                self.stop_motion()
+            except Exception:
+                logger.exception("PVT failed and the coordinate abort could not be confirmed")
+            raise
+
+    def stop_motion(self):
+        with self.modbus.transaction_lock:
+            self.hw_manager.stop_pvt()
+            self._session_active = False
+
     def close(self):
-        self.modbus.disconnect()
-        
+        try:
+            if self._session_active:
+                self.stop_motion()
+                self._session_active = False
+        finally:
+            self.modbus.disconnect()
+
+
 class VisualHomingManager:
-    """视觉引导回零托管类"""
+    """Acknowledged manual homing commands and protocol-v2 snapshots."""
+
     def __init__(self, modbus_client):
         self.modbus = modbus_client
+        self.protocol = PMACProtocol(modbus_client)
         self.CMD_ADDRESS = 220
 
+    def _command(self, command: int):
+        with self.modbus.transaction_lock:
+            self.protocol.status()
+            self.protocol.wait(
+                lambda: self.modbus.read_int32_array(self.CMD_ADDRESS, 1)[0] == 0,
+                "previous homing command",
+            )
+            self.protocol.write(self.CMD_ADDRESS, [command])
+            self.protocol.wait(
+                lambda: self.modbus.read_int32_array(self.CMD_ADDRESS, 1)[0] == 0,
+                "homing command acknowledgement",
+            )
+
     def start_homing(self):
-        """下发指令 1：启动回零 (PLC将执行 #5j-)"""
-        self.modbus.write_int32_array(address=self.CMD_ADDRESS, values=[1])
+        _, status = self.protocol.snapshot()
+        if status[0] != 0:
+            raise RuntimeError("Cancel the previous homing session before starting again.")
+        self._command(1)
+        state, *_ = self.read_status()
+        if state not in (1, 2):
+            raise RuntimeError(f"PMAC rejected homing start (state={state}).")
 
     def stop_movement(self):
-        """下发指令 2：强制停止 (PLC将执行 #5k)"""
-        self.modbus.write_int32_array(address=self.CMD_ADDRESS, values=[2])
+        """Stop and retain the state that permits an explicit zero confirmation."""
+        self._command(2)
+        self.protocol.wait(lambda: self.read_status()[0] == 3, "homing stop")
+
+    def cancel_homing(self):
+        """Stop, restore temporary current limits and leave without setting zero."""
+        self._command(4)
+        self.protocol.wait(lambda: self.read_status()[0] == 0, "homing cancellation")
 
     def confirm_and_set_zero(self):
-        """下发指令 3：确认停稳并设零 (PLC将执行 #5hmz)"""
-        self.modbus.write_int32_array(address=self.CMD_ADDRESS, values=[3])
+        if self.read_status()[0] != 3:
+            raise RuntimeError("Zero confirmation requires a stopped homing session.")
+        self._command(3)
+
+        def zeroed():
+            positions, status = self.protocol.snapshot()
+            if status[0] == 3 and status[1] == 10:
+                raise RuntimeError("PMAC could not confirm encoder zero.")
+            return status[0] == 0 and status[4] == 1 and positions[4] == 0
+
+        self.protocol.wait(zeroed, "verified encoder zero", timeout_s=3.0)
 
     def read_status(self):
-        """读取底层状态 (状态, 停止原因, 电流, 跟随误差)"""
-        # PLC 中我们存放在 444, 446, 448, 450
-        state_reason = self.modbus.read_int32_array(address=444, count=2)
-        iq_fe = self.modbus.read_int32_array(address=448, count=2)
-        return state_reason[0], state_reason[1], iq_fe[0], iq_fe[1]
+        _, status = self.protocol.snapshot()
+        return status[:4]

@@ -24,6 +24,7 @@ def main():
 
     config = PMACConfig(ip='192.168.0.200')
     robot = PMACRobotController(config)
+    homing_active = False
     homer = VisualHomingManager(robot.modbus)
 
     try:
@@ -41,6 +42,7 @@ def main():
 
         # 2. 下发启动指令给 PLC 3
         homer.start_homing()
+        homing_active = True
         
         # 启动键盘监听器，非阻塞捕捉刹车信号
         listener = keyboard.Listener(on_press=on_press)
@@ -55,15 +57,18 @@ def main():
             # 注意：在你的 robot_api.py 中，read_int32_array(10, 5) 对应 5 个电机
             # 电机 5 的地址是 10 + 4*2 = 18
             try:
-                curr_pos = robot.modbus.read_int32_array(address=18, count=1)[0]
+                curr_pos = robot.read_positions()[4]
                 state, reason, iq, fe = homer.read_status()
                 
                 # 动态刷新终端显示
                 sys.stdout.write(f"\r📊 当前位置: {curr_pos} | 电流: {iq} | PLC状态: {state}      ")
                 sys.stdout.flush()
 
-            except Exception as e:
-                pass # 忽略单次通讯抖动
+            except Exception:
+                # Losing feedback while jogging must not leave motion running.
+                homer.cancel_homing()
+                homing_active = False
+                raise
 
             # 4. 判断用户是否按下了停止键
             if user_triggered_stop:
@@ -73,10 +78,11 @@ def main():
                 
                 print("🏠 正在将当前位置设为绝对零点...")
                 homer.confirm_and_set_zero()
+                homing_active = False
                 time.sleep(0.5)
                 
                 # 重新读一次位置确认
-                final_pos = robot.modbus.read_int32_array(address=18, count=1)[0]
+                final_pos = robot.read_positions()[4]
                 print(f"✅ 设零完成！当前电机 5 读数: {final_pos}")
                 break
 
@@ -85,6 +91,7 @@ def main():
                 print(f"\n\n⚠️ 底层 PLC 触发物理保护停车！(原因码: {reason})")
                 print("可能是提前撞到了硬挡块。")
                 homer.confirm_and_set_zero()
+                homing_active = False
                 print("✅ 已就地设零。")
                 break
 
@@ -92,12 +99,17 @@ def main():
 
     except KeyboardInterrupt:
         print("\n⏹️ 程序被强行中断，发送紧急停止指令...")
-        homer.stop_movement()
+        homer.cancel_homing()
+        homing_active = False
     finally:
         if 'listener' in locals():
             listener.stop()
-        robot.close()
-        print("🔌 连接已安全关闭。")
+        try:
+            if homing_active:
+                homer.cancel_homing()
+        finally:
+            robot.close()
+        print("连接已关闭。")
 
 if __name__ == "__main__":
     main()

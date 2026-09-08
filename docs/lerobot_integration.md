@@ -1,5 +1,9 @@
 # LeRobot Integration
 
+The PMAC hardware link now requires the paired protocol-v2 PLC project. Read
+[PMAC lifecycle and protocol](pmac_protocol_v2.md) before using the hardware commands below.
+The ZMQ/LeRobot action protocol remains unchanged.
+
 The PMAC control loop and LeRobot run as separate processes:
 
 ```text

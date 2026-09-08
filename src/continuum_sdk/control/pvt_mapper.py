@@ -7,6 +7,7 @@ import numpy as np
 from continuum_sdk.control.axis_mapper import ContinuumAxisMapper
 from continuum_sdk.control.tendon_mapper import ContinuumTendonMapper
 from continuum_sdk.kinematics.dls_ik import DLSIK, IKResult
+from continuum_sdk.kinematics.joint_motor_model import MotorAngles
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,15 @@ class ContinuumPVTMapper:
         self.update_interval_s = float(update_interval_s)
         self.max_inner_steps = int(max_inner_steps)
         self._prev_axis_targets: list[float] | None = None
+
+    def commit_pulses(self, target_pulses: list[int]) -> None:
+        """Warm-start from the accepted command after physical-axis clipping."""
+        logical = self.axis_mapper.pulses_to_logical(self.base_pulses, target_pulses)
+        joint = self.tendon_mapper.model.motor_angles_to_joint(MotorAngles(*logical[:4]))
+        self.ik.reset(np.array([
+            logical[4], joint.theta_a, joint.phi_a, joint.theta_c, joint.phi_c,
+        ]))
+        self._prev_axis_targets = logical
 
     def build_command(
         self,

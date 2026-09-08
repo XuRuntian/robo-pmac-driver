@@ -379,6 +379,13 @@ class DLSIK:
 
             denom = q1[k] - qu[k]
             if abs(denom) < 1e-12:
+                # At an upper limit the positive perturbation is clipped away.
+                # Differentiate in the feasible direction so the joint can retreat.
+                q1 = qu.copy()
+                q1[k] -= eps_j[k]
+                q1 = clamp_qu(q1, (g.d_min, g.d_max), cap_a, cap_c)
+                denom = q1[k] - qu[k]
+            if abs(denom) < 1e-12:
                 continue
 
             f1 = self._task_qu(q1, p_goal, r_goal, z_goal)

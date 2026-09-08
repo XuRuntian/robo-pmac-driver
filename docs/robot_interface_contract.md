@@ -1,5 +1,9 @@
 # Continuum Robot Driver Interface Contract
 
+The physical PMAC link uses the paired [protocol-v2 mailboxes](pmac_protocol_v2.md).
+Encoder reads below refer to freshly requested snapshots, not raw reads of a
+continuously refreshed holding register.
+
 This document defines only the framework-independent driver input, driver
 output, units, coordinate references, and startup reference behavior. It does
 not require LeRobot-style method names.
