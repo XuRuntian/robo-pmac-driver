@@ -49,4 +49,6 @@ add_test(NAME pmac_contract COMMAND "${Python3_EXECUTABLE}"
   "${CMAKE_CURRENT_SOURCE_DIR}/scripts/import_pmac.py" --check)
 add_test(NAME importer_regression COMMAND "${Python3_EXECUTABLE}"
   "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_import.py")
-set_tests_properties(core real_library_abi fake_master_pdo pmac_contract importer_regression PROPERTIES TIMEOUT 30)
+add_test(NAME reset_scope COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_reset_fault_once.py")
+set_tests_properties(core real_library_abi fake_master_pdo pmac_contract importer_regression reset_scope PROPERTIES TIMEOUT 30)

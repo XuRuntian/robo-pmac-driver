@@ -64,8 +64,8 @@ def interrupted(signum, _):
     raise RuntimeError(f"interrupted by signal {signum}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(after_diagnostics=None, description=None):
+    parser = argparse.ArgumentParser(description=description or __doc__)
     parser.add_argument("interface")
     args = parser.parse_args()
     if args.interface not in os.listdir("/sys/class/net"):
@@ -168,6 +168,8 @@ def main():
                             number(entry) == 0 for entry in values["entries"].values()):
                         report["warnings"].append(f"slave {pos}: {index} assignment contains PDO index 0")
             print(f"Slave {pos}: diagnostic reads complete.", file=sys.stderr, flush=True)
+        if after_diagnostics is not None:
+            after_diagnostics(report)
         report["master_after"] = cli("master")["stdout"]
         report["slave_listing_after"] = cli("slaves")["stdout"]
         report["diagnostic_collection_complete"] = not report["errors"]
