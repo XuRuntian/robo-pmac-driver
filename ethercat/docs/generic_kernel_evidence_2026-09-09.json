@@ -1,0 +1,3204 @@
+{
+  "date": "2026-09-09",
+  "kernel": "7.0.0-31-generic",
+  "branch": "feat/igh-offline",
+  "motion_commands_sent": false,
+  "motion_readiness_validated": false,
+  "runs": [
+    {
+      "record": "fifo-esi-1ms-2026-09-09-151740",
+      "artifacts": [
+        {
+          "path": "build/fifo-esi-1ms-2026-09-09-151740.json",
+          "sha256": "2339700473cfafeddc7d863579a59253ddfe11fb67199df0bcb3a47568aa88a4"
+        },
+        {
+          "path": "build/fifo-esi-1ms-2026-09-09-151740.log",
+          "sha256": "e6f85aa70277adb75e48ea47aba89758b0fc0f52a0bf6d2c4aea29077fedbd2f"
+        },
+        {
+          "path": "build/fifo-esi-1ms-2026-09-09-151740-kernel.log",
+          "sha256": "0db73f1b24fb54aa03642b419d3da9563acceec8117c577df42d54c3cac02fbb"
+        }
+      ],
+      "timestamp_utc": "2026-09-09T07:17:40.584683+00:00",
+      "arguments": {
+        "interface": "enp0s31f6",
+        "seconds": 30,
+        "period_us": 1000,
+        "dc": "esi",
+        "cpu": 2,
+        "ordinary_scheduler": false
+      },
+      "errors": [],
+      "warnings": [
+        "slave 0: 0x1c12 assignment contains PDO index 0",
+        "slave 0: 0x1c13 assignment contains PDO index 0",
+        "RxPdo: payload prefix matches, but PDO counts remain inconsistent; disabled timing measurement only, no motion qualification",
+        "TxPdo: payload prefix matches, but PDO counts remain inconsistent; disabled timing measurement only, no motion qualification",
+        "disabled communication only; motion/stop behavior and real-time timing not validated"
+      ],
+      "diagnostic_collection_complete": true,
+      "motion_readiness_validated": false,
+      "cleanup": [
+        {
+          "module": "ec_generic",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "module": "ec_master",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "modules_unloaded": true,
+      "disabled_cyclic": {
+        "enable_commands_sent": false,
+        "started": true,
+        "before": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000553,
+          "mode_display": 8
+        },
+        "exit_code": 0,
+        "observation": {
+          "activated": 1,
+          "reached_op": 1,
+          "observation_complete": 1,
+          "controlword_always_zero": true,
+          "enable_commands_sent": false,
+          "application_period_ns": 1000000,
+          "sync1_register_ns": 0,
+          "requested_seconds": 30,
+          "cpu": 2,
+          "fifo_priority": 60,
+          "memory_locked": 1,
+          "minor_page_faults_in_loop": 1,
+          "major_page_faults_in_loop": 0,
+          "first_op_after_ns": 3532003900,
+          "max_send_gap_ns": 1617154,
+          "max_lateness_observation_ns": 618752,
+          "cycles": 34831,
+          "op_cycles": 31300,
+          "incomplete_cycles_after_op": 0,
+          "non_op_cycles_after_op": 0,
+          "missed_periods": 0,
+          "max_lateness_ns": 618752,
+          "wkc_min_after_op": 3,
+          "wkc_max_after_op": 3,
+          "dc_samples_after_op": 31300,
+          "dc_missing_after_op": 0,
+          "dc_max_difference_ns_after_op": 13893,
+          "last_statusword": 576,
+          "last_mode_display": 8,
+          "initial_position": -506000553,
+          "last_position": -506000553,
+          "minimum_position": -506000556,
+          "maximum_position": -506000548,
+          "active_sdo_readback": [
+            {
+              "index": 7186,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7186,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 5632
+            },
+            {
+              "index": 7186,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 7187,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7187,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 6656
+            },
+            {
+              "index": 7187,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 10
+            },
+            {
+              "index": 5632,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614807056
+            },
+            {
+              "index": 5632,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618608160
+            },
+            {
+              "index": 5632,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 12
+            },
+            {
+              "index": 6656,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614872592
+            },
+            {
+              "index": 6656,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1617166368
+            },
+            {
+              "index": 6656,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618411536
+            },
+            {
+              "index": 6656,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616969736
+            },
+            {
+              "index": 6656,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 6656,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1627193376
+            },
+            {
+              "index": 6656,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 11,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 12,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24770,
+              "subindex": 1,
+              "bytes": 1,
+              "complete": 1,
+              "value": 1
+            },
+            {
+              "index": 24770,
+              "subindex": 2,
+              "bytes": 1,
+              "complete": 1,
+              "value": 253
+            },
+            {
+              "index": 24640,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24639,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            }
+          ]
+        },
+        "slave_listing_after_release": "0  0:0  OP  +  Diamond EtherCAT Drive",
+        "after": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000552,
+          "mode_display": 8
+        },
+        "interpolation_after": {
+          "1": {
+            "exit_code": 0,
+            "stdout": "0x01 1",
+            "stderr": ""
+          },
+          "2": {
+            "exit_code": 0,
+            "stdout": "0xfffffffd -3",
+            "stderr": ""
+          }
+        },
+        "pdo_payload_matches": true,
+        "pdo_counts_match": false
+      }
+    },
+    {
+      "record": "fifo-pmac-1ms-2026-09-09-151922",
+      "artifacts": [
+        {
+          "path": "build/fifo-pmac-1ms-2026-09-09-151922.json",
+          "sha256": "d2bec64a95d63b056d59e3cabc902a6d3b9d13f41c8d294ecb31ada9cb9680bd"
+        },
+        {
+          "path": "build/fifo-pmac-1ms-2026-09-09-151922.log",
+          "sha256": "e6f85aa70277adb75e48ea47aba89758b0fc0f52a0bf6d2c4aea29077fedbd2f"
+        },
+        {
+          "path": "build/fifo-pmac-1ms-2026-09-09-151922-kernel.log",
+          "sha256": "ecd44395425249caa68287bf9b926c4ced3e63af7770538c7ebd3fa2e56a4bc0"
+        }
+      ],
+      "timestamp_utc": "2026-09-09T07:19:22.967105+00:00",
+      "arguments": {
+        "interface": "enp0s31f6",
+        "seconds": 30,
+        "period_us": 1000,
+        "dc": "pmac",
+        "cpu": 2,
+        "ordinary_scheduler": false
+      },
+      "errors": [],
+      "warnings": [
+        "slave 0: 0x1c12 assignment contains PDO index 0",
+        "slave 0: 0x1c13 assignment contains PDO index 0",
+        "RxPdo: payload prefix matches, but PDO counts remain inconsistent; disabled timing measurement only, no motion qualification",
+        "TxPdo: payload prefix matches, but PDO counts remain inconsistent; disabled timing measurement only, no motion qualification",
+        "disabled communication only; motion/stop behavior and real-time timing not validated"
+      ],
+      "diagnostic_collection_complete": true,
+      "motion_readiness_validated": false,
+      "cleanup": [
+        {
+          "module": "ec_generic",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "module": "ec_master",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "modules_unloaded": true,
+      "disabled_cyclic": {
+        "enable_commands_sent": false,
+        "started": true,
+        "before": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000553,
+          "mode_display": 8
+        },
+        "exit_code": 0,
+        "observation": {
+          "activated": 1,
+          "reached_op": 1,
+          "observation_complete": 1,
+          "controlword_always_zero": true,
+          "enable_commands_sent": false,
+          "application_period_ns": 1000000,
+          "sync1_register_ns": 500000,
+          "requested_seconds": 30,
+          "cpu": 2,
+          "fifo_priority": 60,
+          "memory_locked": 1,
+          "minor_page_faults_in_loop": 1,
+          "major_page_faults_in_loop": 0,
+          "first_op_after_ns": 2282002655,
+          "max_send_gap_ns": 1582491,
+          "max_lateness_observation_ns": 585559,
+          "cycles": 33603,
+          "op_cycles": 31322,
+          "incomplete_cycles_after_op": 0,
+          "non_op_cycles_after_op": 0,
+          "missed_periods": 0,
+          "max_lateness_ns": 585559,
+          "wkc_min_after_op": 3,
+          "wkc_max_after_op": 3,
+          "dc_samples_after_op": 31322,
+          "dc_missing_after_op": 0,
+          "dc_max_difference_ns_after_op": 1060859,
+          "last_statusword": 576,
+          "last_mode_display": 8,
+          "initial_position": -506000552,
+          "last_position": -506000551,
+          "minimum_position": -506000556,
+          "maximum_position": -506000548,
+          "active_sdo_readback": [
+            {
+              "index": 7186,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7186,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 5632
+            },
+            {
+              "index": 7186,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 7187,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7187,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 6656
+            },
+            {
+              "index": 7187,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 10
+            },
+            {
+              "index": 5632,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614807056
+            },
+            {
+              "index": 5632,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618608160
+            },
+            {
+              "index": 5632,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 12
+            },
+            {
+              "index": 6656,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614872592
+            },
+            {
+              "index": 6656,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1617166368
+            },
+            {
+              "index": 6656,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618411536
+            },
+            {
+              "index": 6656,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616969736
+            },
+            {
+              "index": 6656,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 6656,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1627193376
+            },
+            {
+              "index": 6656,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 11,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 12,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24770,
+              "subindex": 1,
+              "bytes": 1,
+              "complete": 1,
+              "value": 1
+            },
+            {
+              "index": 24770,
+              "subindex": 2,
+              "bytes": 1,
+              "complete": 1,
+              "value": 253
+            },
+            {
+              "index": 24640,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24639,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            }
+          ]
+        },
+        "slave_listing_after_release": "0  0:0  INIT  +  Diamond EtherCAT Drive",
+        "after": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000554,
+          "mode_display": 8
+        },
+        "interpolation_after": {
+          "1": {
+            "exit_code": 0,
+            "stdout": "0x01 1",
+            "stderr": ""
+          },
+          "2": {
+            "exit_code": 0,
+            "stdout": "0xfffffffd -3",
+            "stderr": ""
+          }
+        },
+        "pdo_payload_matches": true,
+        "pdo_counts_match": false
+      }
+    },
+    {
+      "record": "fifo-esi-2ms-2026-09-09-152520",
+      "artifacts": [
+        {
+          "path": "build/fifo-esi-2ms-2026-09-09-152520.json",
+          "sha256": "8edd8ebbb4aa32d014ea1cffe62fe1d11b3f2bfd49bc52679895edfe179f7519"
+        },
+        {
+          "path": "build/fifo-esi-2ms-2026-09-09-152520.log",
+          "sha256": "e6f85aa70277adb75e48ea47aba89758b0fc0f52a0bf6d2c4aea29077fedbd2f"
+        },
+        {
+          "path": "build/fifo-esi-2ms-2026-09-09-152520-kernel.log",
+          "sha256": "b80774afb33c126209ce2ba6353095523d21489da89694058223a2472501e847"
+        }
+      ],
+      "timestamp_utc": "2026-09-09T07:25:20.171999+00:00",
+      "arguments": {
+        "interface": "enp0s31f6",
+        "seconds": 60,
+        "period_us": 2000,
+        "dc": "esi",
+        "cpu": 2,
+        "ordinary_scheduler": false
+      },
+      "errors": [],
+      "warnings": [
+        "slave 0: 0x1c12 assignment contains PDO index 0",
+        "slave 0: 0x1c13 assignment contains PDO index 0",
+        "RxPdo: payload prefix matches, but PDO counts remain inconsistent; disabled timing measurement only, no motion qualification",
+        "TxPdo: payload prefix matches, but PDO counts remain inconsistent; disabled timing measurement only, no motion qualification",
+        "disabled communication only; motion/stop behavior and real-time timing not validated"
+      ],
+      "diagnostic_collection_complete": true,
+      "motion_readiness_validated": false,
+      "cleanup": [
+        {
+          "module": "ec_generic",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "module": "ec_master",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "modules_unloaded": true,
+      "disabled_cyclic": {
+        "enable_commands_sent": false,
+        "started": true,
+        "before": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000549,
+          "mode_display": 8
+        },
+        "exit_code": 0,
+        "observation": {
+          "activated": 1,
+          "reached_op": 1,
+          "observation_complete": 1,
+          "controlword_always_zero": true,
+          "enable_commands_sent": false,
+          "application_period_ns": 2000000,
+          "sync1_register_ns": 0,
+          "requested_seconds": 60,
+          "cpu": 2,
+          "fifo_priority": 60,
+          "memory_locked": 1,
+          "minor_page_faults_in_loop": 1,
+          "major_page_faults_in_loop": 0,
+          "first_op_after_ns": 5524001867,
+          "max_send_gap_ns": 2482657,
+          "max_lateness_observation_ns": 491557,
+          "latency_p99_observation_us": 70,
+          "observation_samples": 30000,
+          "dc_max_difference_ns_observation": 1099180,
+          "cycles": 33543,
+          "op_cycles": 30782,
+          "incomplete_cycles_after_op": 0,
+          "non_op_cycles_after_op": 0,
+          "missed_periods": 0,
+          "max_lateness_ns": 491557,
+          "wkc_min_after_op": 3,
+          "wkc_max_after_op": 3,
+          "dc_samples_after_op": 30782,
+          "dc_missing_after_op": 0,
+          "dc_max_difference_ns_after_op": 1127829,
+          "last_statusword": 576,
+          "last_mode_display": 8,
+          "initial_position": -506000552,
+          "last_position": -506000552,
+          "minimum_position": -506000556,
+          "maximum_position": -506000548,
+          "active_sdo_readback": [
+            {
+              "index": 7186,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7186,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 5632
+            },
+            {
+              "index": 7186,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 7187,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7187,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 6656
+            },
+            {
+              "index": 7187,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 10
+            },
+            {
+              "index": 5632,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614807056
+            },
+            {
+              "index": 5632,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618608160
+            },
+            {
+              "index": 5632,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 12
+            },
+            {
+              "index": 6656,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614872592
+            },
+            {
+              "index": 6656,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1617166368
+            },
+            {
+              "index": 6656,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618411536
+            },
+            {
+              "index": 6656,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616969736
+            },
+            {
+              "index": 6656,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 6656,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1627193376
+            },
+            {
+              "index": 6656,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 11,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 12,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24770,
+              "subindex": 1,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 24770,
+              "subindex": 2,
+              "bytes": 1,
+              "complete": 1,
+              "value": 253
+            },
+            {
+              "index": 24640,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24639,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            }
+          ]
+        },
+        "slave_listing_after_release": "0  0:0  OP  +  Diamond EtherCAT Drive",
+        "after": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000551,
+          "mode_display": 8
+        },
+        "interpolation_after": {
+          "1": {
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          },
+          "2": {
+            "exit_code": 0,
+            "stdout": "0xfffffffd -3",
+            "stderr": ""
+          }
+        },
+        "pdo_payload_matches": true,
+        "pdo_counts_match": false
+      }
+    },
+    {
+      "record": "fifo-esi-final-1ms-2026-09-09-152929",
+      "artifacts": [
+        {
+          "path": "build/fifo-esi-final-1ms-2026-09-09-152929.json",
+          "sha256": "1c5a04c0cc1a481064e4a414d48f2422699b720fa46e2d1c0c012fdb6a23aa95"
+        },
+        {
+          "path": "build/fifo-esi-final-1ms-2026-09-09-152929.log",
+          "sha256": "1140b1aed32204a5d313a90f20632e28d5ee064c4083904e504ff94d6f23b008"
+        },
+        {
+          "path": "build/fifo-esi-final-1ms-2026-09-09-152929-kernel.log",
+          "sha256": "387377803ba3027e8d4ffb565de54ee9fc53dbaf2218bc9c2053d272145f5114"
+        }
+      ],
+      "timestamp_utc": "2026-09-09T07:29:29.801364+00:00",
+      "arguments": {
+        "interface": "enp0s31f6",
+        "seconds": 60,
+        "period_us": 1000,
+        "dc": "esi",
+        "cpu": 2,
+        "ordinary_scheduler": false
+      },
+      "errors": [
+        "disabled cyclic observation failed; post-release SDOs skipped; inspect kernel log"
+      ],
+      "warnings": [
+        "slave 0: 0x1c12 assignment contains PDO index 0",
+        "slave 0: 0x1c13 assignment contains PDO index 0"
+      ],
+      "diagnostic_collection_complete": false,
+      "motion_readiness_validated": false,
+      "cleanup": [
+        {
+          "module": "ec_generic",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "module": "ec_master",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "modules_unloaded": true,
+      "disabled_cyclic": {
+        "enable_commands_sent": false,
+        "started": true,
+        "before": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000553,
+          "mode_display": 8
+        },
+        "exit_code": 1,
+        "observation": {
+          "activated": 1,
+          "reached_op": 1,
+          "observation_complete": 0,
+          "controlword_always_zero": true,
+          "enable_commands_sent": false,
+          "application_period_ns": 1000000,
+          "sync1_register_ns": 0,
+          "requested_seconds": 60,
+          "cpu": 2,
+          "fifo_priority": 60,
+          "memory_locked": 1,
+          "minor_page_faults_in_loop": 0,
+          "major_page_faults_in_loop": 0,
+          "first_op_after_ns": 435002853,
+          "max_send_gap_ns": 1746220,
+          "max_lateness_observation_ns": 744587,
+          "latency_p99_observation_us": 12,
+          "observation_samples": 49306,
+          "dc_max_difference_ns_observation": 29250,
+          "dc_p50_observation_us": 0,
+          "dc_p99_observation_us": 20,
+          "cycles": 51067,
+          "op_cycles": 50633,
+          "incomplete_cycles_after_op": 1,
+          "non_op_cycles_after_op": 0,
+          "missed_periods": 0,
+          "max_lateness_ns": 744587,
+          "wkc_min_after_op": 0,
+          "wkc_max_after_op": 3,
+          "dc_samples_after_op": 50632,
+          "dc_missing_after_op": 1,
+          "dc_max_difference_ns_after_op": 29250,
+          "last_statusword": 576,
+          "last_mode_display": 8,
+          "initial_position": -506000553,
+          "last_position": -506000552,
+          "minimum_position": -506000557,
+          "maximum_position": -506000548,
+          "active_sdo_readback": [
+            {
+              "index": 7186,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7186,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 5632
+            },
+            {
+              "index": 7186,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 7187,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7187,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 6656
+            },
+            {
+              "index": 7187,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 10
+            },
+            {
+              "index": 5632,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614807056
+            },
+            {
+              "index": 5632,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618608160
+            },
+            {
+              "index": 5632,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 12
+            },
+            {
+              "index": 6656,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614872592
+            },
+            {
+              "index": 6656,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1617166368
+            },
+            {
+              "index": 6656,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618411536
+            },
+            {
+              "index": 6656,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616969736
+            },
+            {
+              "index": 6656,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 6656,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1627193376
+            },
+            {
+              "index": 6656,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 11,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 12,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24770,
+              "subindex": 1,
+              "bytes": 1,
+              "complete": 1,
+              "value": 1
+            },
+            {
+              "index": 24770,
+              "subindex": 2,
+              "bytes": 1,
+              "complete": 1,
+              "value": 253
+            },
+            {
+              "index": 24640,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24639,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            }
+          ]
+        },
+        "post_sdo_skipped": "cyclic failure may leave configuration mailbox work in flight"
+      }
+    },
+    {
+      "record": "fifo-esi-final-2ms-2026-09-09-153153",
+      "artifacts": [
+        {
+          "path": "build/fifo-esi-final-2ms-2026-09-09-153153.json",
+          "sha256": "e3c0d50bd0fa974fa033e0f096adaa4fc155de9901607e7be2b1ae7e0b6e03bc"
+        },
+        {
+          "path": "build/fifo-esi-final-2ms-2026-09-09-153153.log",
+          "sha256": "e6f85aa70277adb75e48ea47aba89758b0fc0f52a0bf6d2c4aea29077fedbd2f"
+        },
+        {
+          "path": "build/fifo-esi-final-2ms-2026-09-09-153153-kernel.log",
+          "sha256": "05aaa0aa1660eef6847fb5f6e6465663cbc212a9a8c7291a232830b8d49dbbc7"
+        }
+      ],
+      "timestamp_utc": "2026-09-09T07:31:53.264020+00:00",
+      "arguments": {
+        "interface": "enp0s31f6",
+        "seconds": 60,
+        "period_us": 2000,
+        "dc": "esi",
+        "cpu": 2,
+        "ordinary_scheduler": false
+      },
+      "errors": [],
+      "warnings": [
+        "slave 0: 0x1c12 assignment contains PDO index 0",
+        "slave 0: 0x1c13 assignment contains PDO index 0",
+        "RxPdo: payload prefix matches, but PDO counts remain inconsistent; disabled timing measurement only, no motion qualification",
+        "TxPdo: payload prefix matches, but PDO counts remain inconsistent; disabled timing measurement only, no motion qualification",
+        "DC monitoring exceeds the 100 us diagnostic bound or is incomplete; OP/WKC success is not DC synchronization qualification",
+        "disabled communication only; motion/stop behavior and real-time timing not validated"
+      ],
+      "diagnostic_collection_complete": true,
+      "motion_readiness_validated": false,
+      "cleanup": [
+        {
+          "module": "ec_generic",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "module": "ec_master",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "modules_unloaded": true,
+      "disabled_cyclic": {
+        "enable_commands_sent": false,
+        "started": true,
+        "before": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000552,
+          "mode_display": 8
+        },
+        "exit_code": 0,
+        "observation": {
+          "activated": 1,
+          "reached_op": 1,
+          "observation_complete": 1,
+          "controlword_always_zero": true,
+          "enable_commands_sent": false,
+          "application_period_ns": 2000000,
+          "sync1_register_ns": 0,
+          "requested_seconds": 60,
+          "cpu": 2,
+          "fifo_priority": 60,
+          "memory_locked": 1,
+          "minor_page_faults_in_loop": 1,
+          "major_page_faults_in_loop": 0,
+          "first_op_after_ns": 5516007120,
+          "max_send_gap_ns": 2417905,
+          "max_lateness_observation_ns": 421314,
+          "latency_p99_observation_us": 80,
+          "observation_samples": 30001,
+          "dc_max_difference_ns_observation": 959523,
+          "dc_p50_observation_us": 1,
+          "dc_p99_observation_us": 510,
+          "cycles": 33513,
+          "op_cycles": 30756,
+          "incomplete_cycles_after_op": 0,
+          "non_op_cycles_after_op": 0,
+          "missed_periods": 0,
+          "max_lateness_ns": 421314,
+          "wkc_min_after_op": 3,
+          "wkc_max_after_op": 3,
+          "dc_samples_after_op": 30756,
+          "dc_missing_after_op": 0,
+          "dc_max_difference_ns_after_op": 1795253,
+          "last_statusword": 576,
+          "last_mode_display": 8,
+          "initial_position": -506000551,
+          "last_position": -506000551,
+          "minimum_position": -506000556,
+          "maximum_position": -506000548,
+          "active_sdo_readback": [
+            {
+              "index": 7186,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7186,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 5632
+            },
+            {
+              "index": 7186,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 7187,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7187,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 6656
+            },
+            {
+              "index": 7187,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 10
+            },
+            {
+              "index": 5632,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614807056
+            },
+            {
+              "index": 5632,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618608160
+            },
+            {
+              "index": 5632,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 12
+            },
+            {
+              "index": 6656,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614872592
+            },
+            {
+              "index": 6656,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1617166368
+            },
+            {
+              "index": 6656,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618411536
+            },
+            {
+              "index": 6656,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616969736
+            },
+            {
+              "index": 6656,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 6656,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1627193376
+            },
+            {
+              "index": 6656,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 11,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 12,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24770,
+              "subindex": 1,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 24770,
+              "subindex": 2,
+              "bytes": 1,
+              "complete": 1,
+              "value": 253
+            },
+            {
+              "index": 24640,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24639,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            }
+          ]
+        },
+        "slave_listing_after_release": "0  0:0  INIT  +  Diamond EtherCAT Drive",
+        "after": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000553,
+          "mode_display": 8
+        },
+        "interpolation_after": {
+          "1": {
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          },
+          "2": {
+            "exit_code": 0,
+            "stdout": "0xfffffffd -3",
+            "stderr": ""
+          }
+        },
+        "pdo_payload_matches": true,
+        "pdo_counts_match": false,
+        "dc_within_diagnostic_bound": false
+      }
+    },
+    {
+      "record": "fifo-dc-settled-2ms-2026-09-09-153546",
+      "artifacts": [
+        {
+          "path": "build/fifo-dc-settled-2ms-2026-09-09-153546.json",
+          "sha256": "50f61cd45bd2433b079fefd7fd0ddb94540da2f66af33c11711687bd8eb62a89"
+        },
+        {
+          "path": "build/fifo-dc-settled-2ms-2026-09-09-153546.log",
+          "sha256": "e6f85aa70277adb75e48ea47aba89758b0fc0f52a0bf6d2c4aea29077fedbd2f"
+        },
+        {
+          "path": "build/fifo-dc-settled-2ms-2026-09-09-153546-kernel.log",
+          "sha256": "db29f00faa8e8a7fd73ef19556ce54b8febe85dc2250804957cd957cb80457bc"
+        }
+      ],
+      "timestamp_utc": "2026-09-09T07:35:47.023121+00:00",
+      "arguments": {
+        "interface": "enp0s31f6",
+        "seconds": 30,
+        "period_us": 2000,
+        "dc": "esi",
+        "cpu": 2,
+        "ordinary_scheduler": false
+      },
+      "errors": [],
+      "warnings": [
+        "slave 0: 0x1c12 assignment contains PDO index 0",
+        "slave 0: 0x1c13 assignment contains PDO index 0",
+        "RxPdo: payload prefix matches, but PDO counts remain inconsistent; disabled timing measurement only, no motion qualification",
+        "TxPdo: payload prefix matches, but PDO counts remain inconsistent; disabled timing measurement only, no motion qualification",
+        "DC monitoring exceeds the 100 us diagnostic bound or is incomplete; OP/WKC success is not DC synchronization qualification",
+        "disabled communication only; motion/stop behavior and real-time timing not validated"
+      ],
+      "diagnostic_collection_complete": true,
+      "motion_readiness_validated": false,
+      "cleanup": [
+        {
+          "module": "ec_generic",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "module": "ec_master",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "modules_unloaded": true,
+      "disabled_cyclic": {
+        "enable_commands_sent": false,
+        "started": true,
+        "before": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000552,
+          "mode_display": 8
+        },
+        "exit_code": 0,
+        "observation": {
+          "activated": 1,
+          "reached_op": 1,
+          "observation_complete": 1,
+          "controlword_always_zero": true,
+          "enable_commands_sent": false,
+          "application_period_ns": 2000000,
+          "sync1_register_ns": 0,
+          "requested_seconds": 30,
+          "cpu": 2,
+          "fifo_priority": 60,
+          "runtime_configured": 1,
+          "memory_locked": 1,
+          "page_fault_counters_collected": 1,
+          "minor_page_faults_in_loop": 1,
+          "major_page_faults_in_loop": 0,
+          "first_op_after_ns": 5526003588,
+          "dc_settle_after_op_ns": 1540002042,
+          "max_send_gap_ns": 2250129,
+          "max_lateness_observation_ns": 230226,
+          "latency_p99_observation_us": 16,
+          "observation_samples": 15002,
+          "dc_max_difference_ns_observation": 290322,
+          "dc_p50_observation_us": 11,
+          "dc_p99_observation_us": 288,
+          "cycles": 18534,
+          "op_cycles": 15772,
+          "incomplete_cycles_after_op": 0,
+          "non_op_cycles_after_op": 0,
+          "missed_periods": 0,
+          "max_lateness_ns": 252179,
+          "wkc_min_after_op": 3,
+          "wkc_max_after_op": 3,
+          "dc_samples_after_op": 15772,
+          "dc_missing_after_op": 0,
+          "dc_max_difference_ns_after_op": 290322,
+          "last_statusword": 576,
+          "last_mode_display": 8,
+          "initial_position": -506000551,
+          "last_position": -506000551,
+          "minimum_position": -506000556,
+          "maximum_position": -506000549,
+          "active_sdo_readback": [
+            {
+              "index": 7186,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7186,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 5632
+            },
+            {
+              "index": 7186,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 7187,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7187,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 6656
+            },
+            {
+              "index": 7187,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 10
+            },
+            {
+              "index": 5632,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614807056
+            },
+            {
+              "index": 5632,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618608160
+            },
+            {
+              "index": 5632,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 12
+            },
+            {
+              "index": 6656,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614872592
+            },
+            {
+              "index": 6656,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1617166368
+            },
+            {
+              "index": 6656,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618411536
+            },
+            {
+              "index": 6656,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616969736
+            },
+            {
+              "index": 6656,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 6656,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1627193376
+            },
+            {
+              "index": 6656,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 11,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 12,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24770,
+              "subindex": 1,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 24770,
+              "subindex": 2,
+              "bytes": 1,
+              "complete": 1,
+              "value": 253
+            },
+            {
+              "index": 24640,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24639,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            }
+          ],
+          "dc_second_peaks_ns": [
+            230336,
+            119702,
+            160789,
+            199214,
+            233725,
+            258366,
+            277375,
+            287784,
+            290322,
+            287382,
+            269210,
+            220532,
+            83994,
+            19880,
+            30562,
+            32102,
+            28533,
+            11098,
+            13637,
+            13801,
+            6875,
+            7576,
+            5427,
+            5315,
+            4536,
+            4398,
+            2639,
+            3056,
+            4324,
+            3947,
+            3240,
+            2487
+          ]
+        },
+        "slave_listing_after_release": "",
+        "after": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000551,
+          "mode_display": 8
+        },
+        "interpolation_after": {
+          "1": {
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          },
+          "2": {
+            "exit_code": 0,
+            "stdout": "0xfffffffd -3",
+            "stderr": ""
+          }
+        },
+        "pdo_payload_matches": true,
+        "pdo_counts_match": false,
+        "dc_within_diagnostic_bound": false
+      }
+    },
+    {
+      "record": "fifo-qualified-2ms-2026-09-09-153903",
+      "artifacts": [
+        {
+          "path": "build/fifo-qualified-2ms-2026-09-09-153903.json",
+          "sha256": "cd4b0c3c183e9176270021d9e7d1e9217497c456c2f195666b1b02180003eacf"
+        },
+        {
+          "path": "build/fifo-qualified-2ms-2026-09-09-153903.log",
+          "sha256": "e6f85aa70277adb75e48ea47aba89758b0fc0f52a0bf6d2c4aea29077fedbd2f"
+        },
+        {
+          "path": "build/fifo-qualified-2ms-2026-09-09-153903-kernel.log",
+          "sha256": "7721555f90f066f95f1299ca33687473c3768f8aeb1ff32bb8786fa6529ccd1b"
+        }
+      ],
+      "timestamp_utc": "2026-09-09T07:39:03.405212+00:00",
+      "arguments": {
+        "interface": "enp0s31f6",
+        "seconds": 30,
+        "period_us": 2000,
+        "dc": "esi",
+        "cpu": 2,
+        "ordinary_scheduler": false
+      },
+      "errors": [],
+      "warnings": [
+        "slave 0: 0x1c12 assignment contains PDO index 0",
+        "slave 0: 0x1c13 assignment contains PDO index 0",
+        "RxPdo: payload prefix matches, but PDO counts remain inconsistent; disabled timing measurement only, no motion qualification",
+        "TxPdo: payload prefix matches, but PDO counts remain inconsistent; disabled timing measurement only, no motion qualification",
+        "disabled communication only; motion/stop behavior and real-time timing not validated"
+      ],
+      "diagnostic_collection_complete": true,
+      "motion_readiness_validated": false,
+      "cleanup": [
+        {
+          "module": "ec_generic",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "module": "ec_master",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "modules_unloaded": true,
+      "disabled_cyclic": {
+        "enable_commands_sent": false,
+        "started": true,
+        "before": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000554,
+          "mode_display": 8
+        },
+        "exit_code": 0,
+        "observation": {
+          "activated": 1,
+          "reached_op": 1,
+          "observation_complete": 1,
+          "controlword_always_zero": true,
+          "enable_commands_sent": false,
+          "application_period_ns": 2000000,
+          "sync1_register_ns": 0,
+          "requested_seconds": 30,
+          "cpu": 2,
+          "fifo_priority": 60,
+          "runtime_configured": 1,
+          "memory_locked": 1,
+          "page_fault_counters_collected": 1,
+          "minor_page_faults_in_loop": 1,
+          "major_page_faults_in_loop": 0,
+          "first_op_after_ns": 5518001884,
+          "dc_settle_after_op_ns": 17022018104,
+          "max_send_gap_ns": 2276385,
+          "max_lateness_observation_ns": 254746,
+          "latency_p99_observation_us": 64,
+          "observation_samples": 15002,
+          "dc_max_difference_ns_observation": 10879,
+          "dc_p50_observation_us": 0,
+          "dc_p99_observation_us": 9,
+          "cycles": 26271,
+          "op_cycles": 23513,
+          "incomplete_cycles_after_op": 0,
+          "non_op_cycles_after_op": 0,
+          "missed_periods": 0,
+          "max_lateness_ns": 285645,
+          "wkc_min_after_op": 3,
+          "wkc_max_after_op": 3,
+          "dc_samples_after_op": 23513,
+          "dc_missing_after_op": 0,
+          "dc_max_difference_ns_after_op": 879715,
+          "last_statusword": 576,
+          "last_mode_display": 8,
+          "initial_position": -506000552,
+          "last_position": -506000552,
+          "minimum_position": -506000556,
+          "maximum_position": -506000549,
+          "active_sdo_readback": [
+            {
+              "index": 7186,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7186,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 5632
+            },
+            {
+              "index": 7186,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 7187,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7187,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 6656
+            },
+            {
+              "index": 7187,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 10
+            },
+            {
+              "index": 5632,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614807056
+            },
+            {
+              "index": 5632,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618608160
+            },
+            {
+              "index": 5632,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 12
+            },
+            {
+              "index": 6656,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614872592
+            },
+            {
+              "index": 6656,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1617166368
+            },
+            {
+              "index": 6656,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618411536
+            },
+            {
+              "index": 6656,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616969736
+            },
+            {
+              "index": 6656,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 6656,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1627193376
+            },
+            {
+              "index": 6656,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 11,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 12,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24770,
+              "subindex": 1,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 24770,
+              "subindex": 2,
+              "bytes": 1,
+              "complete": 1,
+              "value": 253
+            },
+            {
+              "index": 24640,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24639,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            }
+          ],
+          "dc_second_peaks_ns": [
+            879715,
+            851705,
+            807113,
+            753400,
+            684715,
+            568661,
+            266033,
+            61615,
+            75435,
+            83669,
+            85446,
+            82843,
+            79148,
+            58732,
+            21658,
+            6841,
+            10559,
+            7181,
+            10879,
+            10487,
+            8041,
+            4439,
+            8144,
+            3269,
+            3601,
+            3917,
+            3571,
+            8645,
+            3976,
+            3164,
+            2532,
+            2095,
+            3271,
+            6666,
+            2279,
+            2180,
+            2380,
+            1732,
+            2298,
+            1838,
+            2524,
+            2564,
+            2875,
+            2343,
+            2090,
+            2734,
+            3863,
+            1842
+          ]
+        },
+        "slave_listing_after_release": "0  0:0  OP  +  Diamond EtherCAT Drive",
+        "after": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000551,
+          "mode_display": 8
+        },
+        "interpolation_after": {
+          "1": {
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          },
+          "2": {
+            "exit_code": 0,
+            "stdout": "0xfffffffd -3",
+            "stderr": ""
+          }
+        },
+        "pdo_payload_matches": true,
+        "pdo_counts_match": false,
+        "dc_within_diagnostic_bound": true
+      }
+    },
+    {
+      "record": "motion-setup-2026-09-09-152052",
+      "artifacts": [
+        {
+          "path": "build/motion-setup-2026-09-09-152052.json",
+          "sha256": "872169eaf30325b4c8f097e27075072f5d0d0fab853e1fc3a49119c7634f2640"
+        },
+        {
+          "path": "build/motion-setup-2026-09-09-152052.log",
+          "sha256": "5267be00454012808e50fd2e07e277f79a23af3c970bd59e3cf4c80a1bae98e5"
+        }
+      ],
+      "timestamp_utc": "2026-09-09T07:20:52.704092+00:00",
+      "arguments": {
+        "interface": "enp0s31f6"
+      },
+      "errors": [],
+      "warnings": [
+        "slave 0: 0x1c12 assignment contains PDO index 0",
+        "slave 0: 0x1c13 assignment contains PDO index 0"
+      ],
+      "diagnostic_collection_complete": true,
+      "motion_readiness_validated": false,
+      "cleanup": [
+        {
+          "module": "ec_generic",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "module": "ec_master",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "modules_unloaded": true,
+      "motion_setup": {
+        "before": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000553,
+          "mode_display": 8
+        },
+        "reads": [
+          {
+            "index": "0x100a",
+            "subindex": 0,
+            "name": "Software version",
+            "datatype": "string",
+            "bits": 120,
+            "access": "r-r-r-",
+            "exit_code": 0,
+            "stdout": "1.6.5.0.2.1.8.8",
+            "stderr": ""
+          },
+          {
+            "index": "0x10f1",
+            "subindex": 0,
+            "name": "SubIndex 000",
+            "datatype": "uint8",
+            "bits": 8,
+            "access": "r-r-r-",
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          },
+          {
+            "index": "0x10f1",
+            "subindex": 1,
+            "name": "Local Error Reaction",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000001 1",
+            "stderr": ""
+          },
+          {
+            "index": "0x10f1",
+            "subindex": 2,
+            "name": "Sync Error Counter Limit",
+            "datatype": "uint16",
+            "bits": 16,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x0004 4",
+            "stderr": ""
+          },
+          {
+            "index": "0x2100",
+            "subindex": 3,
+            "name": "Motor rated current",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x000001e0 480",
+            "stderr": ""
+          },
+          {
+            "index": "0x2100",
+            "subindex": 6,
+            "name": "Motor max current",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000708 1800",
+            "stderr": ""
+          },
+          {
+            "index": "0x2100",
+            "subindex": 17,
+            "name": "Encoder Type",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000005 5",
+            "stderr": ""
+          },
+          {
+            "index": "0x2100",
+            "subindex": 18,
+            "name": "Encoder single turn resolution",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000011 17",
+            "stderr": ""
+          },
+          {
+            "index": "0x2100",
+            "subindex": 19,
+            "name": "Encoder multi turn resolution",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000010 16",
+            "stderr": ""
+          },
+          {
+            "index": "0x605a",
+            "subindex": 0,
+            "name": "Quickstop option code",
+            "datatype": "int16",
+            "bits": 16,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x0002 2",
+            "stderr": ""
+          },
+          {
+            "index": "0x605b",
+            "subindex": 0,
+            "name": "Shutdown option code",
+            "datatype": "int16",
+            "bits": 16,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x0000 0",
+            "stderr": ""
+          },
+          {
+            "index": "0x605c",
+            "subindex": 0,
+            "name": "Disable operation option code",
+            "datatype": "int16",
+            "bits": 16,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x0000 0",
+            "stderr": ""
+          },
+          {
+            "index": "0x605d",
+            "subindex": 0,
+            "name": "Halt option code",
+            "datatype": "int16",
+            "bits": 16,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x0001 1",
+            "stderr": ""
+          },
+          {
+            "index": "0x6065",
+            "subindex": 0,
+            "name": "Following error window",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00020000 131072",
+            "stderr": ""
+          },
+          {
+            "index": "0x6066",
+            "subindex": 0,
+            "name": "Following error timeout",
+            "datatype": "uint16",
+            "bits": 16,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x0032 50",
+            "stderr": ""
+          },
+          {
+            "index": "0x6072",
+            "subindex": 0,
+            "name": "Motor max torque",
+            "datatype": "uint16",
+            "bits": 16,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x0bb8 3000",
+            "stderr": ""
+          },
+          {
+            "index": "0x6075",
+            "subindex": 0,
+            "name": "Motor rated current",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x000003e8 1000",
+            "stderr": ""
+          },
+          {
+            "index": "0x6076",
+            "subindex": 0,
+            "name": "Motor rated torque",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x000003e8 1000",
+            "stderr": ""
+          },
+          {
+            "index": "0x607b",
+            "subindex": 0,
+            "name": "SubIndex 000",
+            "datatype": "uint8",
+            "bits": 8,
+            "access": "r-r-r-",
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          },
+          {
+            "index": "0x607b",
+            "subindex": 1,
+            "name": "Min position range limit",
+            "datatype": "int32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x80000000 -2147483648",
+            "stderr": ""
+          },
+          {
+            "index": "0x607b",
+            "subindex": 2,
+            "name": "Max position range limit",
+            "datatype": "int32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x7fffffff 2147483647",
+            "stderr": ""
+          },
+          {
+            "index": "0x607d",
+            "subindex": 0,
+            "name": "SubIndex 000",
+            "datatype": "uint8",
+            "bits": 8,
+            "access": "r-r-r-",
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          },
+          {
+            "index": "0x607d",
+            "subindex": 1,
+            "name": "Min software position limit",
+            "datatype": "int32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x80000000 -2147483648",
+            "stderr": ""
+          },
+          {
+            "index": "0x607d",
+            "subindex": 2,
+            "name": "Max software position limit",
+            "datatype": "int32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x7fffffff 2147483647",
+            "stderr": ""
+          },
+          {
+            "index": "0x607f",
+            "subindex": 0,
+            "name": "Max_profile_velocity",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0xffffffff 4294967295",
+            "stderr": ""
+          },
+          {
+            "index": "0x6080",
+            "subindex": 0,
+            "name": "Max motor speed",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000000 0",
+            "stderr": ""
+          },
+          {
+            "index": "0x6083",
+            "subindex": 0,
+            "name": "Profile acceleration",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00320000 3276800",
+            "stderr": ""
+          },
+          {
+            "index": "0x6084",
+            "subindex": 0,
+            "name": "Profile deceleration",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00320000 3276800",
+            "stderr": ""
+          },
+          {
+            "index": "0x6085",
+            "subindex": 0,
+            "name": "Quickstop Deceleration",
+            "datatype": "int32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00500000 5242880",
+            "stderr": ""
+          },
+          {
+            "index": "0x608f",
+            "subindex": 0,
+            "name": "SubIndex 000",
+            "datatype": "uint8",
+            "bits": 8,
+            "access": "r-r-r-",
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          },
+          {
+            "index": "0x608f",
+            "subindex": 1,
+            "name": "Encoder Increments",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00020000 131072",
+            "stderr": ""
+          },
+          {
+            "index": "0x608f",
+            "subindex": 2,
+            "name": "Motor Revolutions",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000001 1",
+            "stderr": ""
+          },
+          {
+            "index": "0x6091",
+            "subindex": 0,
+            "name": "SubIndex 000",
+            "datatype": "uint8",
+            "bits": 8,
+            "access": "r-r-r-",
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          },
+          {
+            "index": "0x6091",
+            "subindex": 1,
+            "name": "Motor Revolutions",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000001 1",
+            "stderr": ""
+          },
+          {
+            "index": "0x6091",
+            "subindex": 2,
+            "name": "Shaft Revolutions",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000001 1",
+            "stderr": ""
+          },
+          {
+            "index": "0x6092",
+            "subindex": 0,
+            "name": "SubIndex 000",
+            "datatype": "uint8",
+            "bits": 8,
+            "access": "r-r-r-",
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          },
+          {
+            "index": "0x6092",
+            "subindex": 1,
+            "name": "Feed",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000001 1",
+            "stderr": ""
+          },
+          {
+            "index": "0x6092",
+            "subindex": 2,
+            "name": "Shaft Revolutions",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000001 1",
+            "stderr": ""
+          },
+          {
+            "index": "0x6093",
+            "subindex": 0,
+            "name": "SubIndex 000",
+            "datatype": "uint8",
+            "bits": 8,
+            "access": "r-r-r-",
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          },
+          {
+            "index": "0x6093",
+            "subindex": 1,
+            "name": "Numerator",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000001 1",
+            "stderr": ""
+          },
+          {
+            "index": "0x6093",
+            "subindex": 2,
+            "name": "Feed constant",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000001 1",
+            "stderr": ""
+          },
+          {
+            "index": "0x60b0",
+            "subindex": 0,
+            "name": "Position offset",
+            "datatype": "int32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000000 0",
+            "stderr": ""
+          },
+          {
+            "index": "0x60b1",
+            "subindex": 0,
+            "name": "Velocity offset",
+            "datatype": "int32",
+            "bits": 32,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x00000000 0",
+            "stderr": ""
+          },
+          {
+            "index": "0x60b2",
+            "subindex": 0,
+            "name": "Torque offset",
+            "datatype": "int16",
+            "bits": 16,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x0000 0",
+            "stderr": ""
+          },
+          {
+            "index": "0x60e0",
+            "subindex": 0,
+            "name": "Pos Tor Limit",
+            "datatype": "uint16",
+            "bits": 16,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x0bb8 3000",
+            "stderr": ""
+          },
+          {
+            "index": "0x60e1",
+            "subindex": 0,
+            "name": "Neg Tor Limit",
+            "datatype": "uint16",
+            "bits": 16,
+            "access": "rwrwrw",
+            "exit_code": 0,
+            "stdout": "0x0bb8 3000",
+            "stderr": ""
+          },
+          {
+            "index": "0x60fd",
+            "subindex": 0,
+            "name": "Digital inputs",
+            "datatype": "uint32",
+            "bits": 32,
+            "access": "r-r-r-",
+            "exit_code": 0,
+            "stdout": "0x00000000 0",
+            "stderr": ""
+          }
+        ],
+        "writes": [],
+        "objects_absent_from_dictionary": [
+          "0x6073"
+        ],
+        "after": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000551,
+          "mode_display": 8
+        },
+        "complete": true
+      }
+    }
+  ]
+}

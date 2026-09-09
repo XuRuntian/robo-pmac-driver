@@ -94,9 +94,11 @@ def wait_dictionary(report, positions):
     raise RuntimeError("automatic SDO dictionary did not finish in 45 seconds; external SDOs skipped")
 
 
-def main(after_diagnostics=None, description=None):
+def main(after_diagnostics=None, description=None, configure_parser=None):
     parser = argparse.ArgumentParser(description=description or __doc__)
     parser.add_argument("interface")
+    if configure_parser is not None:
+        configure_parser(parser)
     args = parser.parse_args()
     if args.interface not in os.listdir("/sys/class/net"):
         raise SystemExit("unknown interface")
@@ -124,6 +126,7 @@ def main(after_diagnostics=None, description=None):
               "interface": args.interface, "mac": mac, "slave_count": 0,
               "slaves": [], "motion_commands_sent": False, "errors": [], "warnings": [],
               "diagnostic_collection_complete": False, "motion_readiness_validated": False}
+    report["arguments"] = vars(args)
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     try:

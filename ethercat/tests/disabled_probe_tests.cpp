@@ -1,10 +1,17 @@
 #include "continuum/disabled_probe.hpp"
+#include "continuum/cyclic_runtime.hpp"
 #include <array>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
 
 int main() {
+    continuum::StableWindow settling(3000000000ULL);
+    if (settling.observe(0, true) || settling.observe(2000000000ULL, true)
+            || settling.observe(2500000000ULL, false) || settling.observe(3000000000ULL, true)
+            || settling.observe(5900000000ULL, true) || !settling.observe(6000000000ULL, true)
+            || settling.observe(6001000000ULL, false))
+        throw std::runtime_error("DC settling did not require an uninterrupted stable window");
     const continuum::DriveOffsets o{0, 2, 6, 8, 10, 12, 16, 18, 20};
     std::array<std::uint8_t, 24> data{};
     const std::array<std::int32_t, 5> positions{

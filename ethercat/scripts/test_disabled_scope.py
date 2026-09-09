@@ -58,7 +58,41 @@ class DisabledScopeTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "post-release SDOs skipped"):
                 subject.run_disabled(self.report)
             self.assertEqual(snapshot.call_count, 1)
-            self.assertEqual([c.args for c in cli.call_args_list], [("debug", 1), ("debug", 0)])
+            cli.assert_not_called()
+
+
+class PdoReadbackTests(unittest.TestCase):
+    @staticmethod
+    def array(values):
+        def reply(value):
+            return {"exit_code": 0, "stdout": f"{value:#x} {value}", "stderr": ""}
+        return {"complete": True, "count": reply(len(values)),
+                "entries": {str(i): reply(v) for i, v in enumerate(values, 1)}}
+
+    def setUp(self):
+        self.pdo = json.loads((subject.probe.ROOT / "config/pmac_drives.json").read_text())["pdos"]["RxPdo"]
+        self.entries = [(e["index"] << 16) | e["bits"] for e in self.pdo["entries"]]
+
+    def test_standard_counts(self):
+        self.assertTrue(subject.check_pdo_readback(self.pdo, self.array([0x1600]), self.array(self.entries)))
+
+    def test_observed_count_anomaly_is_never_marked_conformant(self):
+        self.assertFalse(subject.check_pdo_readback(self.pdo, self.array([0x1600, 0]),
+                                                   self.array(self.entries + [0x60710010, 0x60600008, 8, 0, 0])))
+
+    def test_extra_active_pdo_is_rejected(self):
+        with self.assertRaises(RuntimeError):
+            subject.check_pdo_readback(self.pdo, self.array([0x1600, 0x1601]), self.array(self.entries))
+
+    def test_changed_payload_is_rejected(self):
+        self.entries[0], self.entries[1] = self.entries[1], self.entries[0]
+        with self.assertRaises(RuntimeError):
+            subject.check_pdo_readback(self.pdo, self.array([0x1600]), self.array(self.entries))
+
+    def test_incomplete_read_is_rejected(self):
+        mapped = self.array(self.entries); mapped["complete"] = False
+        with self.assertRaises(RuntimeError):
+            subject.check_pdo_readback(self.pdo, self.array([0x1600]), mapped)
 
 
 if __name__ == "__main__":

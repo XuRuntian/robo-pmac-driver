@@ -41,6 +41,8 @@ add_executable(igh_disabled_probe src/disabled_probe.cpp $<TARGET_OBJECTS:igh_co
 target_link_libraries(igh_disabled_probe PRIVATE offline_options "${IGH_REAL}")
 add_executable(disabled_probe_tests tests/disabled_probe_tests.cpp)
 target_link_libraries(disabled_probe_tests PRIVATE offline_options)
+add_executable(commissioning_motion_tests tests/commissioning_motion_tests.cpp)
+target_link_libraries(commissioning_motion_tests PRIVATE offline_options)
 add_executable(igh_fake_smoke src/fake_smoke.cpp $<TARGET_OBJECTS:igh_config>)
 target_link_libraries(igh_fake_smoke PRIVATE offline_options "${IGH_FAKE}" ${CMAKE_DL_LIBS})
 # Keep RtIPC as a direct dependency: executable RUNPATH does not resolve the
@@ -54,6 +56,7 @@ add_executable(host_timing_probe src/timing_probe.cpp)
 target_compile_options(host_timing_probe PRIVATE -Wall -Wextra -Wpedantic -Werror)
 add_test(NAME core COMMAND offline_core_tests)
 add_test(NAME disabled_frame COMMAND disabled_probe_tests)
+add_test(NAME commissioning_motion_policy COMMAND commissioning_motion_tests)
 add_test(NAME real_library_abi COMMAND igh_abi_check)
 add_test(NAME fake_master_pdo COMMAND "${Python3_EXECUTABLE}"
   "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run_fake.py" "$<TARGET_FILE:igh_fake_smoke>")
@@ -71,4 +74,4 @@ add_test(NAME esi_regression COMMAND "${Python3_EXECUTABLE}"
   "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_esi.py")
 add_test(NAME disabled_scope COMMAND "${Python3_EXECUTABLE}"
   "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_disabled_scope.py")
-set_tests_properties(core disabled_frame real_library_abi fake_master_pdo pmac_contract importer_regression reset_scope dictionary_wait esi_contract esi_regression disabled_scope PROPERTIES TIMEOUT 30)
+set_tests_properties(core disabled_frame commissioning_motion_policy real_library_abi fake_master_pdo pmac_contract importer_regression reset_scope dictionary_wait esi_contract esi_regression disabled_scope PROPERTIES TIMEOUT 30)
