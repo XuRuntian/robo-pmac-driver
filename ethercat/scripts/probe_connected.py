@@ -4,6 +4,7 @@
 Discovery initializes EtherCAT/mailboxes, normally reaching PREOP. No application
 PDO configuration, SDO download, fault reset or enable command is issued. Exit 0
 means collection/cleanup succeeded; drive faults are reported as warnings.
+External SDOs wait for automatic dictionary completion, using the kernel journal.
 """
 import argparse
 import datetime
@@ -64,6 +65,35 @@ def interrupted(signum, _):
     raise RuntimeError(f"interrupted by signal {signum}")
 
 
+def wait_dictionary(report, positions):
+    """Serialize our SDOs after IgH's automatic dictionary fetch.
+
+    The pinned master fetches dictionaries in its master FSM after three seconds;
+    CLI uploads use a separate slave FSM. Wait for actual completion messages,
+    rather than using a guessed sleep, before submitting external mailbox work.
+    Requires journald kernel access (already root for temporary module loading).
+    """
+    pending = set(positions)
+    result = report["dictionary_wait"] = {"completed": {}, "complete": False}
+    since = report["timestamp_utc"].replace("T", " ").replace("+00:00", " UTC")
+    deadline = time.monotonic() + 45
+    while time.monotonic() < deadline:
+        log = run("journalctl", "-k", "--since", since, "--output=cat", "--no-pager")["stdout"]
+        for match in re.finditer(r"EtherCAT DEBUG 0-(\d+): Fetched (\d+) SDOs and (\d+) entries\.", log):
+            pos = int(match[1])
+            if pos in pending:
+                pending.remove(pos)
+                result["completed"][str(pos)] = {"sdo_count": int(match[2]), "entry_count": int(match[3])}
+                print(f"Slave {pos}: automatic SDO dictionary finished.", file=sys.stderr, flush=True)
+        if not pending:
+            result["complete"] = True
+            cli("debug", 0)
+            return
+        time.sleep(0.25)
+    result["pending_positions"] = sorted(pending)
+    raise RuntimeError("automatic SDO dictionary did not finish in 45 seconds; external SDOs skipped")
+
+
 def main(after_diagnostics=None, description=None):
     parser = argparse.ArgumentParser(description=description or __doc__)
     parser.add_argument("interface")
@@ -97,7 +127,7 @@ def main(after_diagnostics=None, description=None):
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     try:
-        run("insmod", modules[0], f"main_devices={mac}")
+        run("insmod", modules[0], f"main_devices={mac}", "debug_level=1")
         loaded.append("ec_master")
         run("udevadm", "settle", "--timeout=5", timeout=6)
         run("insmod", modules[1])
@@ -123,6 +153,7 @@ def main(after_diagnostics=None, description=None):
             raise RuntimeError("link is up but no EtherCAT slave responded")
         if len(positions) > 5:
             raise RuntimeError("more than five slaves found; inspect topology before further reads")
+        wait_dictionary(report, positions)
         objects = [("statusword", "0x6041", "uint16"), ("error_code", "0x603f", "uint16"),
                    ("mode_requested", "0x6060", "int8"), ("mode_display", "0x6061", "int8"),
                    ("actual_position", "0x6064", "int32"), ("actual_torque", "0x6077", "int16"),
