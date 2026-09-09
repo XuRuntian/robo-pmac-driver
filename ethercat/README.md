@@ -104,7 +104,7 @@ git diff -- config/pmac_drives.json
 - 字典等待：以每台的实际完成记录为条件；开始记录或部分从站完成均不放行，超时停止外部 SDO 读取。
 - ESI 兼容性：拒绝身份、映射方向、类型、位宽、启动命令和 DC 因子的未审查变化；保持原 ENI 提取数据和新的启动选择各自可追溯。
 - 单轴失能入口：数量/身份/故障/现有使能状态门控；输出始终禁用并保持带符号反馈目标；周期失败时跳过收尾外部 SDO，避免与自动重配置冲突。
-- 单轴运动入口：默认只验证失能 PDO 回读；显式选择才运行空载 90 counts 往返。覆盖端点未到达、异常锁存、负数参数传递、临时限值恢复及停机未确认时保留限值。
+- 单轴运动入口：默认只验证失能 PDO 回读；`--move` 显式选择空载往返，可设置相对角度和单程时间。覆盖正反向轨迹、时间和位移上限、端点未到达、异常锁存、角度换算、负数参数、临时限值恢复及中断收尾。
 - 本项目 C++ 测试默认启用 AddressSanitizer、UndefinedBehaviorSanitizer 和泄漏检查。
 
 `MotionGate` 只判断是否允许继续计算目标，**没有实现物理停止**。`SegmentQueue` 是单线程离线队列；PVT 接口使用 counts/s，与原 PMAC 的 counts/ms 不同。示例里的位置、速度、加速度限值都是合成测试值，不是机器人标定值。
@@ -141,11 +141,15 @@ PDO 有效前缀和实际第一项分配必须与配置一致；发现额外非�
 sudo python3 scripts/probe_pdo_counts.py enp0s31f6 > build/pdo-counts.json
 # 默认只做失能下的位置 PDO -> SDO 回读：
 sudo python3 scripts/probe_motion.py enp0s31f6 > build/pdo-echo.json
-# 显式选择真实 90 counts 往返，包含同样的失能回读检查：
-sudo python3 scripts/probe_motion.py enp0s31f6 --move-unloaded-90-counts-operator-ready > build/motion.json
+# 预览 1° 往返参数，不加载主站，不需要 sudo：
+python3 scripts/probe_motion.py enp0s31f6 --move --angle-deg 1 --move-seconds 2 --plan
+# 真机相对 1° 往返，单程 2 秒，包含同样的失能回读检查：
+sudo python3 scripts/probe_motion.py enp0s31f6 --move --angle-deg 1 --move-seconds 2 > build/motion.json
 ```
 
-运动入口固定 CPU 2 / FIFO 60 / 2 ms，仅接受已诊断的固件 `1.6.5.0.2.1.8.8`、精确 PDO 前缀和全零尾部。先设置并核对 3% 转矩上限、窄软件位置范围和跟随误差参数；DC 稳定后，控制字为零时交替写入位置小偏移，用独立 SDO 核对收到的目标及反馈，再进入使能流程。异常不自动重试，每次退出持续发送失能帧一秒，要求连续 200 ms 的有效失能反馈；未确认时保留临时限值。完整物理急停和断线停车仍未验证。
+`--angle-deg` 默认 0.25°，可取非零的 ±10° 范围；负值反向。`--move-seconds` 默认 2 秒、范围 1–5 秒，每个方向使用该时长，到端点保持一秒再返回起点并失能。实际命令按 131072 counts/转取整，并在线核对编码器及比例；`--plan` 显示取整结果和随行程变化的限位。旧 `--move-unloaded-90-counts-operator-ready` 命令保留原来的 90 counts / 2 秒，不能和新角度/时间参数混用。详见 [自己运行与修改角度](docs/run_single_motor.md)。
+
+运动入口固定 CPU 2 / FIFO 60 / 2 ms，仅接受已诊断的固件 `1.6.5.0.2.1.8.8`、精确 PDO 前缀和全零尾部。先设置并核对 3% 转矩上限、按行程计算的软件位置范围和跟随误差参数；DC 稳定后，控制字为零时交替写入位置小偏移，用独立 SDO 核对收到的目标及反馈，再进入使能流程。异常不自动重试，每次退出持续发送失能帧一秒，要求连续 200 ms 的有效失能反馈；未确认时保留临时限值。Ctrl+C 会请求子进程失能并保留最终反馈用于参数恢复。新参数通过离线检查，本轮未追加真机运动；已有实测范围为 90 counts（约 0.247°）。完整物理急停和断线停车仍未验证。
 
 接线后的诊断可在 `ethercat/` 运行：
 

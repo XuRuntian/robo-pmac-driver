@@ -15,6 +15,7 @@ struct CommissioningLimits {
     std::int32_t following_bound;
     unsigned torque_bound;
     std::uint64_t period_ns;
+    std::uint64_t move_ns = 2000000000ULL;
 };
 struct CommissioningFeedback {
     std::uint64_t time_ns;
@@ -51,10 +52,11 @@ private:
 public:
     explicit CommissioningMotion(CommissioningLimits limits) : limits_(limits) {
         // This policy deliberately cannot represent an arbitrary jog/trajectory.
-        if (!limits.displacement || magnitude(limits.displacement) > 128
+        if (!limits.displacement || magnitude(limits.displacement) > 3641
                 || limits.travel_bound <= magnitude(limits.displacement)
-                || limits.travel_bound > 512 || limits.following_bound <= 0
+                || limits.travel_bound > 4096 || limits.following_bound <= 0
                 || limits.following_bound > 128 || !limits.torque_bound || limits.torque_bound > 100
+                || limits.move_ns < second || limits.move_ns > 5 * second
                 || (limits.period_ns != 1000000 && limits.period_ns != 2000000))
             throw std::invalid_argument("invalid bounded commissioning limits");
     }
@@ -124,11 +126,11 @@ public:
         case Phase::returning: {
             if (state != DriveState::enabled) return abort(Failure::drive_state);
             const bool outward = phase_ == Phase::outward;
-            const auto u = std::min(1.0, double(elapsed) / (2 * second));
+            const auto u = std::min(1.0, double(elapsed) / limits_.move_ns);
             const auto blend = u * u * (3 - 2 * u);
             const auto delta = std::llround(limits_.displacement * (outward ? blend : 1 - blend));
             target_ = static_cast<std::int32_t>(std::int64_t(anchor_) + delta);
-            if (elapsed >= 2 * second) enter(outward ? Phase::hold_out : Phase::hold_end, f.time_ns);
+            if (elapsed >= limits_.move_ns) enter(outward ? Phase::hold_out : Phase::hold_end, f.time_ns);
             return {15, target_};
         }
         case Phase::hold_out:
