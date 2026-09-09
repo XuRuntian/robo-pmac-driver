@@ -1,0 +1,1054 @@
+{
+  "date": "2026-09-09",
+  "kernel": "7.0.0-31-generic",
+  "scope": "one unloaded Diamond, 90 count outward and return",
+  "runs": [
+    {
+      "record": "pdo-count-write-2026-09-09-154935",
+      "artifacts": [
+        {
+          "path": "build/pdo-count-write-2026-09-09-154935.json",
+          "sha256": "e976d22af73bb2d398c0d180aa8964174bccd1c4c352b0289e8104b0d79fa85e"
+        },
+        {
+          "path": "build/pdo-count-write-2026-09-09-154935.log",
+          "sha256": "e6f85aa70277adb75e48ea47aba89758b0fc0f52a0bf6d2c4aea29077fedbd2f"
+        },
+        {
+          "path": "build/pdo-count-write-2026-09-09-154935-kernel.log",
+          "sha256": "bb4eef112c2805a7dc49dd058e1972f0085c9a96fcf1b501f394d43365af2699"
+        }
+      ],
+      "timestamp_utc": "2026-09-09T07:49:35.562088+00:00",
+      "arguments": {
+        "interface": "enp0s31f6"
+      },
+      "motion_commands_sent": false,
+      "errors": [],
+      "warnings": [
+        "slave 0: 0x1c12 assignment contains PDO index 0",
+        "slave 0: 0x1c13 assignment contains PDO index 0"
+      ],
+      "modules_unloaded": true,
+      "cleanup": [
+        {
+          "module": "ec_generic",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "module": "ec_master",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "pdo_count_test": {
+        "before": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000553,
+          "mode_display": 8
+        },
+        "writes": [
+          {
+            "index": "0x1c12",
+            "subindex": 0,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1600",
+            "subindex": 0,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1600",
+            "subindex": 1,
+            "value": 1614807056,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1600",
+            "subindex": 2,
+            "value": 1618608160,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1600",
+            "subindex": 3,
+            "value": 1618018320,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1600",
+            "subindex": 4,
+            "value": 1616904200,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1600",
+            "subindex": 5,
+            "value": 8,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1600",
+            "subindex": 6,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1600",
+            "subindex": 7,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1600",
+            "subindex": 8,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1600",
+            "subindex": 9,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1600",
+            "subindex": 10,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1c12",
+            "subindex": 1,
+            "value": 5632,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1c12",
+            "subindex": 2,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1600",
+            "subindex": 0,
+            "value": 5,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1c12",
+            "subindex": 0,
+            "value": 1,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1c13",
+            "subindex": 0,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "subindex": 0,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "subindex": 1,
+            "value": 1614872592,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "subindex": 2,
+            "value": 1617166368,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "subindex": 3,
+            "value": 1618411536,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "subindex": 4,
+            "value": 1616969736,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "subindex": 5,
+            "value": 8,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "subindex": 6,
+            "value": 1627193376,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "subindex": 7,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "subindex": 8,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "subindex": 9,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "subindex": 10,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "subindex": 11,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "subindex": 12,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1c13",
+            "subindex": 1,
+            "value": 6656,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1c13",
+            "subindex": 2,
+            "value": 0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "subindex": 0,
+            "value": 6,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "index": "0x1c13",
+            "subindex": 0,
+            "value": 1,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          }
+        ],
+        "reads": [
+          {
+            "index": "0x1c12",
+            "stage": "after_zero",
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          },
+          {
+            "index": "0x1600",
+            "stage": "after_zero",
+            "exit_code": 0,
+            "stdout": "0x0a 10",
+            "stderr": ""
+          },
+          {
+            "index": "0x1600",
+            "stage": "after_commit",
+            "exit_code": 0,
+            "stdout": "0x0a 10",
+            "stderr": ""
+          },
+          {
+            "index": "0x1c12",
+            "stage": "after_commit",
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          },
+          {
+            "index": "0x1c13",
+            "stage": "after_zero",
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "stage": "after_zero",
+            "exit_code": 0,
+            "stdout": "0x0c 12",
+            "stderr": ""
+          },
+          {
+            "index": "0x1a00",
+            "stage": "after_commit",
+            "exit_code": 0,
+            "stdout": "0x0c 12",
+            "stderr": ""
+          },
+          {
+            "index": "0x1c13",
+            "stage": "after_commit",
+            "exit_code": 0,
+            "stdout": "0x02 2",
+            "stderr": ""
+          }
+        ],
+        "after_arrays": {
+          "0x1600": {
+            "count": {
+              "exit_code": 0,
+              "stdout": "0x0a 10",
+              "stderr": ""
+            },
+            "entries": {
+              "1": {
+                "exit_code": 0,
+                "stdout": "0x60400010 1614807056",
+                "stderr": ""
+              },
+              "2": {
+                "exit_code": 0,
+                "stdout": "0x607a0020 1618608160",
+                "stderr": ""
+              },
+              "3": {
+                "exit_code": 0,
+                "stdout": "0x60710010 1618018320",
+                "stderr": ""
+              },
+              "4": {
+                "exit_code": 0,
+                "stdout": "0x60600008 1616904200",
+                "stderr": ""
+              },
+              "5": {
+                "exit_code": 0,
+                "stdout": "0x00000008 8",
+                "stderr": ""
+              },
+              "6": {
+                "exit_code": 0,
+                "stdout": "0x00000000 0",
+                "stderr": ""
+              },
+              "7": {
+                "exit_code": 0,
+                "stdout": "0x00000000 0",
+                "stderr": ""
+              },
+              "8": {
+                "exit_code": 0,
+                "stdout": "0x00000000 0",
+                "stderr": ""
+              },
+              "9": {
+                "exit_code": 0,
+                "stdout": "0x00000000 0",
+                "stderr": ""
+              },
+              "10": {
+                "exit_code": 0,
+                "stdout": "0x00000000 0",
+                "stderr": ""
+              }
+            },
+            "complete": true
+          },
+          "0x1a00": {
+            "count": {
+              "exit_code": 0,
+              "stdout": "0x0c 12",
+              "stderr": ""
+            },
+            "entries": {
+              "1": {
+                "exit_code": 0,
+                "stdout": "0x60410010 1614872592",
+                "stderr": ""
+              },
+              "2": {
+                "exit_code": 0,
+                "stdout": "0x60640020 1617166368",
+                "stderr": ""
+              },
+              "3": {
+                "exit_code": 0,
+                "stdout": "0x60770010 1618411536",
+                "stderr": ""
+              },
+              "4": {
+                "exit_code": 0,
+                "stdout": "0x60610008 1616969736",
+                "stderr": ""
+              },
+              "5": {
+                "exit_code": 0,
+                "stdout": "0x00000008 8",
+                "stderr": ""
+              },
+              "6": {
+                "exit_code": 0,
+                "stdout": "0x60fd0020 1627193376",
+                "stderr": ""
+              },
+              "7": {
+                "exit_code": 0,
+                "stdout": "0x00000000 0",
+                "stderr": ""
+              },
+              "8": {
+                "exit_code": 0,
+                "stdout": "0x00000000 0",
+                "stderr": ""
+              },
+              "9": {
+                "exit_code": 0,
+                "stdout": "0x00000000 0",
+                "stderr": ""
+              },
+              "10": {
+                "exit_code": 0,
+                "stdout": "0x00000000 0",
+                "stderr": ""
+              },
+              "11": {
+                "exit_code": 0,
+                "stdout": "0x00000000 0",
+                "stderr": ""
+              },
+              "12": {
+                "exit_code": 0,
+                "stdout": "0x00000000 0",
+                "stderr": ""
+              }
+            },
+            "complete": true
+          },
+          "0x1c12": {
+            "count": {
+              "exit_code": 0,
+              "stdout": "0x02 2",
+              "stderr": ""
+            },
+            "entries": {
+              "1": {
+                "exit_code": 0,
+                "stdout": "0x1600 5632",
+                "stderr": ""
+              },
+              "2": {
+                "exit_code": 0,
+                "stdout": "0x0000 0",
+                "stderr": ""
+              }
+            },
+            "complete": true
+          },
+          "0x1c13": {
+            "count": {
+              "exit_code": 0,
+              "stdout": "0x02 2",
+              "stderr": ""
+            },
+            "entries": {
+              "1": {
+                "exit_code": 0,
+                "stdout": "0x1a00 6656",
+                "stderr": ""
+              },
+              "2": {
+                "exit_code": 0,
+                "stdout": "0x0000 0",
+                "stderr": ""
+              }
+            },
+            "complete": true
+          }
+        },
+        "after": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000554,
+          "mode_display": 8
+        }
+      }
+    },
+    {
+      "record": "pdo-echo-disabled-2026-09-09-155537",
+      "artifacts": [
+        {
+          "path": "build/pdo-echo-disabled-2026-09-09-155537.json",
+          "sha256": "ba2c404a20b61ebb601157ba4724293498c45e589a1971448d390037754a518f"
+        },
+        {
+          "path": "build/pdo-echo-disabled-2026-09-09-155537.log",
+          "sha256": "e6f85aa70277adb75e48ea47aba89758b0fc0f52a0bf6d2c4aea29077fedbd2f"
+        },
+        {
+          "path": "build/pdo-echo-disabled-2026-09-09-155537-kernel.log",
+          "sha256": "80d3a4186d743250711dd6aaa285d6661bed89d79a671150fca85b72fb7b9b5e"
+        }
+      ],
+      "timestamp_utc": "2026-09-09T07:55:37.224124+00:00",
+      "arguments": {
+        "interface": "enp0s31f6",
+        "move_unloaded_90_counts_operator_ready": false
+      },
+      "motion_commands_sent": false,
+      "errors": [
+        "/home/xrt/水射流/robo-pmac-driver/ethercat/build/igh-install/bin/ethercat failed: /home/xrt/水射流/robo-pmac-driver/ethercat/build/igh-install/bin/ethercat: invalid option -- '2'\n\nUsage: ethercat <COMMAND> [OPTIONS] [ARGUMENTS]\n\nCommands (can be abbreviated):\n  alias      Write alias addresses.\n  config     Show slave configurations.\n  crc        CRC error register diagnosis.\n  cstruct    Generate slave PDO information in C language.\n  data       Output binary domain process data.\n  debug      Set the master's debug level.\n  domains    Show configured domains.\n  download   Write an SDO entry to a slave.\n  foe_read   Read a file from a slave via FoE.\n  foe_write  Store a file on a slave via FoE.\n  graph      Output the bus topology as a graph.\n  master     Show master and Ethernet device information.\n  pdos       List Sync managers, PDO assignment and mapping.\n  reg_read   Output a slave's register contents.\n  reg_write  Write data to a slave's registers.\n  rescan     Rescan the bus.\n  sdos       List SDO dictionaries.\n  sii_read   Output a slave's SII contents.\n  sii_write  Write SII contents to a slave.\n  slaves     Display slaves on the bus.\n  soe_read   Read an SoE IDN from a slave.\n  soe_write  Write an SoE IDN to a slave.\n  states     Request application-layer states.\n  upload     Read an SDO entry from a slave.\n  version    Show version information.\n  xml        Generate slave information XML.\n\nGlobal options:\n  --master  -m <master>  Comma separated list of masters\n                         to select, ranges are allowed.\n                         Examples: '1,3', '5-7,9', '-3'.\n                         Default: '-' (all).\n  --force   -f           Force a command.\n  --quiet   -q           Output less information.\n  --verbose -v           Output more information.\n  --help    -h           Show this help.\n\nNumerical values can be specified either with decimal (no\nprefix), octal (prefix '0') or hexadecimal (prefix '0x') base.\n\nCall 'ethercat <COMMAND> --help' for command-specific help.\n\nSend bug reports to fp@igh.de."
+      ],
+      "warnings": [
+        "slave 0: 0x1c12 assignment contains PDO index 0",
+        "slave 0: 0x1c13 assignment contains PDO index 0"
+      ],
+      "modules_unloaded": true,
+      "cleanup": [
+        {
+          "module": "ec_generic",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "module": "ec_master",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "commissioning": {
+        "before": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000552,
+          "mode_display": 8
+        },
+        "move_requested": false,
+        "limits": [
+          {
+            "index": "0x6072",
+            "subindex": 0,
+            "datatype": "uint16",
+            "original": 3000,
+            "temporary": 30,
+            "write_attempted": true,
+            "readback": 30
+          },
+          {
+            "index": "0x60e0",
+            "subindex": 0,
+            "datatype": "uint16",
+            "original": 3000,
+            "temporary": 30,
+            "write_attempted": true,
+            "readback": 30
+          },
+          {
+            "index": "0x60e1",
+            "subindex": 0,
+            "datatype": "uint16",
+            "original": 3000,
+            "temporary": 30,
+            "write_attempted": true,
+            "readback": 30
+          },
+          {
+            "index": "0x6065",
+            "subindex": 0,
+            "datatype": "uint32",
+            "original": 131072,
+            "temporary": 128,
+            "write_attempted": true,
+            "readback": 128
+          },
+          {
+            "index": "0x6066",
+            "subindex": 0,
+            "datatype": "uint16",
+            "original": 50,
+            "temporary": 20,
+            "write_attempted": true,
+            "readback": 20
+          },
+          {
+            "index": "0x607d",
+            "subindex": 1,
+            "datatype": "int32",
+            "original": -2147483648,
+            "temporary": -506001064,
+            "write_attempted": true
+          },
+          {
+            "index": "0x607d",
+            "subindex": 2,
+            "datatype": "int32",
+            "original": 2147483647,
+            "temporary": -506000040,
+            "write_attempted": false
+          }
+        ],
+        "restored": false,
+        "after": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000553,
+          "mode_display": 8
+        }
+      }
+    },
+    {
+      "record": "single-motion-2026-09-09-155749",
+      "artifacts": [
+        {
+          "path": "build/single-motion-2026-09-09-155749.json",
+          "sha256": "f60d9e5a946b4b6a999778bc74b94d0d80f1c3bdda8daa67cf17d2e03edb8ba9"
+        },
+        {
+          "path": "build/single-motion-2026-09-09-155749.log",
+          "sha256": "e6f85aa70277adb75e48ea47aba89758b0fc0f52a0bf6d2c4aea29077fedbd2f"
+        },
+        {
+          "path": "build/single-motion-2026-09-09-155749-kernel.log",
+          "sha256": "43baa2e6a4ceab433d831e1e900858c9c6c92146711710b32eaa8ef1cad51968"
+        }
+      ],
+      "timestamp_utc": "2026-09-09T07:57:49.550381+00:00",
+      "arguments": {
+        "interface": "enp0s31f6",
+        "move_unloaded_90_counts_operator_ready": true
+      },
+      "motion_commands_sent": true,
+      "errors": [],
+      "warnings": [
+        "slave 0: 0x1c12 assignment contains PDO index 0",
+        "slave 0: 0x1c13 assignment contains PDO index 0",
+        "single unloaded axis only; fixed PDO count replies remain a firmware compatibility limitation"
+      ],
+      "modules_unloaded": true,
+      "cleanup": [
+        {
+          "module": "ec_generic",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "module": "ec_master",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "recovered_limit_baseline": [
+        {
+          "index": "0x607d",
+          "subindex": 1,
+          "original": -2147483648,
+          "restored": -2147483648
+        },
+        {
+          "index": "0x6066",
+          "subindex": 0,
+          "original": 50,
+          "restored": 50
+        },
+        {
+          "index": "0x6065",
+          "subindex": 0,
+          "original": 131072,
+          "restored": 131072
+        },
+        {
+          "index": "0x60e1",
+          "subindex": 0,
+          "original": 3000,
+          "restored": 3000
+        },
+        {
+          "index": "0x60e0",
+          "subindex": 0,
+          "original": 3000,
+          "restored": 3000
+        },
+        {
+          "index": "0x6072",
+          "subindex": 0,
+          "original": 3000,
+          "restored": 3000
+        }
+      ],
+      "commissioning": {
+        "before": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000550,
+          "mode_display": 8
+        },
+        "move_requested": true,
+        "limits": [
+          {
+            "index": "0x6072",
+            "subindex": 0,
+            "datatype": "uint16",
+            "original": 3000,
+            "temporary": 30,
+            "write_attempted": true,
+            "readback": 30,
+            "restored_value": 3000
+          },
+          {
+            "index": "0x60e0",
+            "subindex": 0,
+            "datatype": "uint16",
+            "original": 3000,
+            "temporary": 30,
+            "write_attempted": true,
+            "readback": 30,
+            "restored_value": 3000
+          },
+          {
+            "index": "0x60e1",
+            "subindex": 0,
+            "datatype": "uint16",
+            "original": 3000,
+            "temporary": 30,
+            "write_attempted": true,
+            "readback": 30,
+            "restored_value": 3000
+          },
+          {
+            "index": "0x6065",
+            "subindex": 0,
+            "datatype": "uint32",
+            "original": 131072,
+            "temporary": 128,
+            "write_attempted": true,
+            "readback": 128,
+            "restored_value": 131072
+          },
+          {
+            "index": "0x6066",
+            "subindex": 0,
+            "datatype": "uint16",
+            "original": 50,
+            "temporary": 20,
+            "write_attempted": true,
+            "readback": 20,
+            "restored_value": 50
+          },
+          {
+            "index": "0x607d",
+            "subindex": 1,
+            "datatype": "int32",
+            "original": -2147483648,
+            "temporary": -506001062,
+            "write_attempted": true,
+            "readback": -506001062,
+            "restored_value": -2147483648
+          },
+          {
+            "index": "0x607d",
+            "subindex": 2,
+            "datatype": "int32",
+            "original": 2147483647,
+            "temporary": -506000038,
+            "write_attempted": true,
+            "readback": -506000038,
+            "restored_value": 2147483647
+          }
+        ],
+        "restored": true,
+        "command": [
+          "/home/xrt/水射流/robo-pmac-driver/ethercat/build/commissioning/igh_motion_probe",
+          "--move-unloaded-90-counts-operator-ready"
+        ],
+        "exit_code": 0,
+        "after": {
+          "controlword": 0,
+          "statusword": 5696,
+          "error_code": 0,
+          "actual_position": -506000553,
+          "mode_display": 8
+        },
+        "observation": {
+          "motion_requested": 1,
+          "activated": 1,
+          "enable_commands_sent": 1,
+          "echo_verified": 1,
+          "completed": 1,
+          "disabled_confirmed": 1,
+          "op_cycles": 9043,
+          "bad_wkc": 0,
+          "bad_op": 0,
+          "max_lateness_ns": 220643,
+          "qualified_after_op_ns": 9599999059,
+          "dc_max_motion_ns": 3606,
+          "final_phase": 10,
+          "policy_failure": 0,
+          "initial_position": -506000554,
+          "final_position": -506000552,
+          "minimum_position": -506000556,
+          "maximum_position": -506000459,
+          "final_statusword": 5696
+        },
+        "phase_statistics": [
+          {
+            "phase": 0,
+            "samples": 500,
+            "first_position": -506000552,
+            "last_position": -506000552,
+            "first_target": -506000552,
+            "last_target": -506000552,
+            "max_error_counts": 0,
+            "min_torque": -6,
+            "max_torque": 6,
+            "statuswords": [
+              "0x240"
+            ]
+          },
+          {
+            "phase": 1,
+            "samples": 5,
+            "first_position": -506000552,
+            "last_position": -506000551,
+            "first_target": -506000552,
+            "last_target": -506000551,
+            "max_error_counts": 0,
+            "min_torque": -2,
+            "max_torque": 2,
+            "statuswords": [
+              "0x240"
+            ]
+          },
+          {
+            "phase": 2,
+            "samples": 5,
+            "first_position": -506000553,
+            "last_position": -506000553,
+            "first_target": -506000553,
+            "last_target": -506000553,
+            "max_error_counts": 0,
+            "min_torque": -6,
+            "max_torque": 4,
+            "statuswords": [
+              "0x221",
+              "0x231"
+            ]
+          },
+          {
+            "phase": 3,
+            "samples": 5,
+            "first_position": -506000552,
+            "last_position": -506000552,
+            "first_target": -506000552,
+            "last_target": -506000552,
+            "max_error_counts": 4,
+            "min_torque": -2,
+            "max_torque": 2,
+            "statuswords": [
+              "0x1233",
+              "0x233"
+            ]
+          },
+          {
+            "phase": 4,
+            "samples": 501,
+            "first_position": -506000551,
+            "last_position": -506000553,
+            "first_target": -506000552,
+            "last_target": -506000552,
+            "max_error_counts": 4,
+            "min_torque": -8,
+            "max_torque": 11,
+            "statuswords": [
+              "0x1237",
+              "0x1637"
+            ]
+          },
+          {
+            "phase": 5,
+            "samples": 1000,
+            "first_position": -506000552,
+            "last_position": -506000461,
+            "first_target": -506000552,
+            "last_target": -506000462,
+            "max_error_counts": 6,
+            "min_torque": -4,
+            "max_torque": 13,
+            "statuswords": [
+              "0x1637"
+            ]
+          },
+          {
+            "phase": 6,
+            "samples": 501,
+            "first_position": -506000461,
+            "last_position": -506000461,
+            "first_target": -506000462,
+            "last_target": -506000462,
+            "max_error_counts": 3,
+            "min_torque": -6,
+            "max_torque": 8,
+            "statuswords": [
+              "0x1637"
+            ]
+          },
+          {
+            "phase": 7,
+            "samples": 1000,
+            "first_position": -506000463,
+            "last_position": -506000556,
+            "first_target": -506000462,
+            "last_target": -506000552,
+            "max_error_counts": 6,
+            "min_torque": -8,
+            "max_torque": 8,
+            "statuswords": [
+              "0x1637"
+            ]
+          },
+          {
+            "phase": 8,
+            "samples": 501,
+            "first_position": -506000554,
+            "last_position": -506000554,
+            "first_target": -506000552,
+            "last_target": -506000552,
+            "max_error_counts": 4,
+            "min_torque": -6,
+            "max_torque": 11,
+            "statuswords": [
+              "0x1637"
+            ]
+          },
+          {
+            "phase": 9,
+            "samples": 5,
+            "first_position": -506000553,
+            "last_position": -506000552,
+            "first_target": -506000552,
+            "last_target": -506000552,
+            "max_error_counts": 1,
+            "min_torque": 0,
+            "max_torque": 6,
+            "statuswords": [
+              "0x1627",
+              "0x1637"
+            ]
+          },
+          {
+            "phase": 10,
+            "samples": 1,
+            "first_position": -506000553,
+            "last_position": -506000553,
+            "first_target": -506000552,
+            "last_target": -506000552,
+            "max_error_counts": 1,
+            "min_torque": 2,
+            "max_torque": 2,
+            "statuswords": [
+              "0x1640"
+            ]
+          }
+        ],
+        "sample_count": 4024
+      }
+    }
+  ]
+}

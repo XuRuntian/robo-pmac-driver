@@ -39,6 +39,8 @@ add_executable(igh_abi_check src/abi_check.cpp)
 target_link_libraries(igh_abi_check PRIVATE offline_options "${IGH_REAL}")
 add_executable(igh_disabled_probe src/disabled_probe.cpp $<TARGET_OBJECTS:igh_config>)
 target_link_libraries(igh_disabled_probe PRIVATE offline_options "${IGH_REAL}")
+add_executable(igh_motion_probe src/motion_probe.cpp $<TARGET_OBJECTS:igh_config>)
+target_link_libraries(igh_motion_probe PRIVATE offline_options "${IGH_REAL}")
 add_executable(disabled_probe_tests tests/disabled_probe_tests.cpp)
 target_link_libraries(disabled_probe_tests PRIVATE offline_options)
 add_executable(commissioning_motion_tests tests/commissioning_motion_tests.cpp)
@@ -74,4 +76,6 @@ add_test(NAME esi_regression COMMAND "${Python3_EXECUTABLE}"
   "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_esi.py")
 add_test(NAME disabled_scope COMMAND "${Python3_EXECUTABLE}"
   "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_disabled_scope.py")
-set_tests_properties(core disabled_frame commissioning_motion_policy real_library_abi fake_master_pdo pmac_contract importer_regression reset_scope dictionary_wait esi_contract esi_regression disabled_scope PROPERTIES TIMEOUT 30)
+add_test(NAME motion_scope COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_motion_scope.py")
+set_tests_properties(core disabled_frame commissioning_motion_policy real_library_abi fake_master_pdo pmac_contract importer_regression reset_scope dictionary_wait esi_contract esi_regression disabled_scope motion_scope PROPERTIES TIMEOUT 30)

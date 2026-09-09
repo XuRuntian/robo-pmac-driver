@@ -1,8 +1,10 @@
-# IgH 环境、离线测试与单轴通信调试
+# IgH 环境、离线测试与单轴运动调试
 
-已构建真实 IgH 库、命令行工具和内核模块，建立五轴配置、离线验证以及保持失能的单轴实机周期测试入口。**尚未提供实机运动入口，也未移植完整回零、停止、实时线程调度或上层 IK 通信后端。**
+已构建真实 IgH 库、命令行工具和内核模块，建立五轴配置、离线验证、单轴失能通信及空载小角度实机往返入口。**完整回零、多轴协调停止、轨迹流及上层 IK 通信后端尚未完成。**
 
-最新现场结果：2026-09-09 保留普通内核，加入 FIFO 调度、CPU 绑定、内存锁定和 DC 时序优化。2 ms 单轴失能通信已多轮连续运行一分钟，WKC 均完整；1 ms 延长测试仍发生过一次反馈缺失。程序增加 DC 持续收敛检查，PDO 数量差异继续明确记录。**本轮没有使能或转动电机，完整运动验收未完成。** 见 [普通内核优化记录](docs/generic_kernel_validation_2026-09-09.md)。
+最新现场结果：2026-09-09 保留普通内核，以 2 ms 周期完成单台空载电机的 **90 counts（按编码器比例约 0.247°）往返并失能**。运动期间最大跟随差 6 counts，DC 最大 3.606 µs，无不完整 WKC 或掉 OP。结束时 `6040=0`、`6041=0x1640`（失能）、`603F=0`；临时保护参数已恢复并回读，模块已卸载。见 [首次空载运动记录](docs/single_motion_validation_2026-09-09.md)。
+
+此前普通内核的调度/DC 优化及 1 ms 偶发反馈缺失，见 [普通内核优化记录](docs/generic_kernel_validation_2026-09-09.md)。PDO 计数固定回读已作单台固件兼容诊断，尚未修复固件，也不能将本次结果外推到五轴或带机构运行。
 
 最初 ESI 接入及 `0x001A` 同步错误的记录见 [ESI 与周期通信记录](docs/esi_cyclic_validation_2026-09-09.md)。
 
@@ -75,9 +77,9 @@ build/offline/host_timing_probe 3000 > build/host-timing.json
 | Sync1 寄存器 | ESC `0x09a4` 写入 `500000 ns` |
 | DC 参考时钟 | 第一个从站 |
 
-`sync1_register_ns` 保存的是 ESC 寄存器原值；固定版本 IgH 会将该 API 参数直接写入 `09A4`，不能把它解释成独立的 0.5 ms Sync1 周期。新 ESI 的默认因子按 IgH 规则换算为 `09A4=0`，与 PMAC 不同；本次失能测试保留 PMAC 的 500000 ns，后续需要对照验证相位和调度。
+`sync1_register_ns` 保存的是 ESC 寄存器原值；固定版本 IgH 会将该 API 参数直接写入 `09A4`，不能把它解释成独立的 0.5 ms Sync1 周期。新 ESI 的默认因子按 IgH 规则换算为 `09A4=0`，与 PMAC 不同。原五轴配置保留 500000 ns，本次单轴入口采用 ESI 的 0。
 
-用户提供的 ESI 保存在 `config/esi/`，`scripts/check_esi.py --check` 校验身份、PDO 类型/方向、重映射能力、启动 SDO 和 DC 模板，结果为 [esi_review.json](config/esi_review.json)。ESI 的默认 2 ms 启动周期已明确覆盖为 1 ms：适配器新增 `60C2:1=1, 60C2:2=-3`，与主站/Sync0 一致；未下载电机或编码器对象默认值。
+用户提供的 ESI 保存在 `config/esi/`，`scripts/check_esi.py --check` 校验身份、PDO 类型/方向、重映射能力、启动 SDO 和 DC 模板，结果为 [esi_review.json](config/esi_review.json)。五轴适配默认明确设置 `60C2:1=1, 60C2:2=-3`，与主站的 1 ms 一致；单轴入口按所选周期覆盖，运动入口固定为 2 ms。未下载电机或编码器对象默认值。
 
 PMAC 的 `Slave[].Position` 在该文件中全为零，不能直接作为 IgH 的五个位置。PMAC 过程映像的字节偏移也不能直接复用；适配代码通过 `ecrt_slave_config_reg_pdo_entry()` 获取偏移。这里只把明确映射到 SM2/SM3 的 PDO 转换为 IgH 配置，不复制 ENI 中主站底层初始化帧。
 
@@ -102,6 +104,7 @@ git diff -- config/pmac_drives.json
 - 字典等待：以每台的实际完成记录为条件；开始记录或部分从站完成均不放行，超时停止外部 SDO 读取。
 - ESI 兼容性：拒绝身份、映射方向、类型、位宽、启动命令和 DC 因子的未审查变化；保持原 ENI 提取数据和新的启动选择各自可追溯。
 - 单轴失能入口：数量/身份/故障/现有使能状态门控；输出始终禁用并保持带符号反馈目标；周期失败时跳过收尾外部 SDO，避免与自动重配置冲突。
+- 单轴运动入口：默认只验证失能 PDO 回读；显式选择才运行空载 90 counts 往返。覆盖端点未到达、异常锁存、负数参数传递、临时限值恢复及停机未确认时保留限值。
 - 本项目 C++ 测试默认启用 AddressSanitizer、UndefinedBehaviorSanitizer 和泄漏检查。
 
 `MotionGate` 只判断是否允许继续计算目标，**没有实现物理停止**。`SegmentQueue` 是单线程离线队列；PVT 接口使用 counts/s，与原 PMAC 的 counts/ms 不同。示例里的位置、速度、加速度限值都是合成测试值，不是机器人标定值。
@@ -114,7 +117,7 @@ IgH 模拟库的 WKC/主站状态通常直接返回成功，因此上述异常�
 
 ## 下一阶段
 
-已完成临时模块加载、3 台及单台从站识别、ESI 核对及普通内核的单轴周期优化。纠正编码器插接后 `0x738A` 已不再出现。当前 2 ms 是单轴调试的候选周期；五轴原 ENI 契约仍保留 1 ms。PDO 数量回读差异未解决，首次使能前还须确认机械连接、可动范围和现场停止条件，验证驱动侧保护及实际停止过程。位置约 -506000550 原始 counts；程序已从新鲜反馈对齐目标，不能把目标零当作保持位置。
+已完成单台空载小幅往返及正常失能；当前 2 ms 用于单轴调试，五轴原 ENI 契约仍保留 1 ms。下一步是单轴重复性、异常停止和长时稳定性，再接入多轴/PVT/IK。位置约 -506000550 原始 counts，必须从新鲜反馈对齐目标，不能把目标零当作保持位置。
 
 单轴周期测试在 `ethercat/` 构建和运行：
 
@@ -127,9 +130,22 @@ sudo python3 scripts/probe_disabled.py enp0s31f6 --cpu 2 --period-us 2000 --dc e
 
 这个入口写入易失的 PDO/CSP/插补/DC 通信配置，所有控制字始终为零。它最多等 20 秒进入 OP，再最多等 45 秒确认 DC 误差连续 3 秒不超过 20 us，随后开始正式观察。首次 WKC/OP 异常立即结束；循环中不打印日志。进程退出码 0 仅表示观察和回读完成，仍须检查 `dc_within_diagnostic_bound`、`pdo_counts_match` 和 `warnings`，不能视为运动许可。
 
-PDO 有效前缀和实际第一项分配必须与配置一致；发现额外非零分配或布局不同仍拒绝。仅为失能计时测试，将当前“内容匹配、数量不符”分别报告为 `pdo_payload_matches=true`、`pdo_counts_match=false`。未清零残留槽、修改固件或把数量异常当成已修复。
+PDO 有效前缀和实际第一项分配必须与配置一致；发现额外非零分配或布局不同仍拒绝。失能计时脚本将“内容匹配、数量不符”分别报告为 `pdo_payload_matches=true`、`pdo_counts_match=false`。后续专项脚本已清零残留槽，并验证计数写 0/有效数量后仍返回固定值，详见首次运动记录。
 
-`scripts/inspect_motion_setup.py` 只读实际编码器比例、跟随误差、限位及停止参数。`CommissioningMotion` 已离线测试小位移往返、使能前目标对齐、超时和异常锁存，但还没有接到任何实机运动入口；它发出失能指令不等于物理急停已验证。
+`scripts/inspect_motion_setup.py` 只读实际编码器比例、跟随误差、限位及停止参数。`CommissioningMotion` 已接入独立的 `igh_motion_probe`，旧 `igh_disabled_probe` 仍不包含使能入口。
+
+仅用于本次相同固件、单台空载、人员在场可立即断电的装置：
+
+```bash
+# 诊断固定计数并将未用映射槽清零（PREOP，控制字保持零）：
+sudo python3 scripts/probe_pdo_counts.py enp0s31f6 > build/pdo-counts.json
+# 默认只做失能下的位置 PDO -> SDO 回读：
+sudo python3 scripts/probe_motion.py enp0s31f6 > build/pdo-echo.json
+# 显式选择真实 90 counts 往返，包含同样的失能回读检查：
+sudo python3 scripts/probe_motion.py enp0s31f6 --move-unloaded-90-counts-operator-ready > build/motion.json
+```
+
+运动入口固定 CPU 2 / FIFO 60 / 2 ms，仅接受已诊断的固件 `1.6.5.0.2.1.8.8`、精确 PDO 前缀和全零尾部。先设置并核对 3% 转矩上限、窄软件位置范围和跟随误差参数；DC 稳定后，控制字为零时交替写入位置小偏移，用独立 SDO 核对收到的目标及反馈，再进入使能流程。异常不自动重试，每次退出持续发送失能帧一秒，要求连续 200 ms 的有效失能反馈；未确认时保留临时限值。完整物理急停和断线停车仍未验证。
 
 接线后的诊断可在 `ethercat/` 运行：
 

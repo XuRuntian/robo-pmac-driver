@@ -49,6 +49,24 @@ int main() {
     simulate(false);
     simulate(false, -90);
     simulate(true);
+    {
+        CommissioningMotion lagging(limits());
+        auto f = initial();
+        bool arrival_rejected = false;
+        for (unsigned i = 0; i < 7000; ++i) {
+            auto command = lagging.step(f);
+            if (lagging.phase() == CommissioningMotion::Phase::aborted) {
+                check(lagging.failure() == CommissioningMotion::Failure::position && command.control == 0,
+                      "missed arrival did not disable");
+                arrival_rejected = true; break;
+            }
+            f.position = command.position - (command.control == 15 ? 20 : 0);
+            f.status = command.control == 6 ? 0x0221 : command.control == 7 ? 0x0223 :
+                       command.control == 15 ? 0x0227 : 0x0240;
+            f.time_ns += 1000000;
+        }
+        check(arrival_rejected, "did not reject a persistent position error at the endpoint");
+    }
     for (unsigned error = 0; error < 7; ++error) {
         CommissioningMotion m(limits());
         auto f = initial();

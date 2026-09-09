@@ -7,8 +7,7 @@
 #include <stdexcept>
 
 namespace continuum {
-// Offline-tested policy only. No hardware executable calls this class yet.
-// Actual use additionally requires verified drive limits/stop parameters and
+// Bounded commissioning policy. Actual use requires verified drive limits and
 // an explicit mechanical envelope; this is not a physical emergency stop.
 struct CommissioningLimits {
     std::int32_t displacement;
@@ -136,6 +135,8 @@ public:
         case Phase::hold_end:
             if (state != DriveState::enabled) return abort(Failure::drive_state);
             if (elapsed >= second) {
+                if (magnitude(std::int64_t(f.position) - target_) > std::min(16, limits_.following_bound))
+                    return abort(Failure::position);
                 if (phase_ == Phase::hold_out) enter(Phase::returning, f.time_ns);
                 else { enter(Phase::disable, f.time_ns); return {0, target_}; }
             }
