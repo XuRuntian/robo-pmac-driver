@@ -1,35 +1,44 @@
 #include "continuum/igh_config.hpp"
 #include "drive_config.hpp"
+#include "esi_config.hpp"
 #include <stdexcept>
 
 namespace continuum {
-std::array<DriveOffsets, 5> configure_drives(ec_master_t* master, ec_domain_t* domain) {
+ConfiguredDrive configure_drive(ec_master_t* master, ec_domain_t* domain, std::size_t i) {
     if (!master || !domain) throw std::invalid_argument("null IgH master/domain");
+    const auto& id = drive_config::slaves.at(i);
+    auto* slave = ecrt_master_slave_config(master, id.alias, id.position, id.vendor, id.product);
+    if (!slave) throw std::runtime_error("slave configuration failed");
+    if (ecrt_slave_config_pdos(slave, EC_END, drive_config::syncs))
+        throw std::runtime_error("PDO configuration failed");
+    if (ecrt_slave_config_dc(slave, drive_config::assign_activate,
+            drive_config::sync0_cycle_ns, drive_config::sync0_shift_ns,
+            drive_config::sync1_register_ns, 0))
+        throw std::runtime_error("DC configuration failed");
+    if (id.reference && ecrt_master_select_reference_clock(master, slave))
+        throw std::runtime_error("reference clock selection failed");
+    // ESI startup says CSP/2 ms. Retain PMAC's 1 ms application/DC period,
+    // explicitly matching 60C2 instead of relying on the drive's last value.
+    static_assert(esi_config::period_ms * 1000000 == drive_config::period_ns);
+    if (ecrt_slave_config_sdo16(slave, 0x6040, 0, 0)
+            || ecrt_slave_config_sdo8(slave, 0x6060, 0, drive_config::mode)
+            || ecrt_slave_config_sdo8(slave, 0x60c2, 1, esi_config::period_ms)
+            || ecrt_slave_config_sdo8(slave, 0x60c2, 2, esi_config::time_index_byte))
+        throw std::runtime_error("disabled CSP/interpolation SDO configuration failed");
+    auto reg = [&](std::uint16_t index) -> unsigned {
+        unsigned bit = 0;
+        const auto offset = ecrt_slave_config_reg_pdo_entry(slave, index, 0, domain, &bit);
+        if (offset < 0 || bit != 0) throw std::runtime_error("PDO registration/alignment failed");
+        return static_cast<unsigned>(offset);
+    };
+    return {slave, {reg(0x6040), reg(0x607a), reg(0x6071), reg(0x6060),
+                    reg(0x6041), reg(0x6064), reg(0x6077), reg(0x6061), reg(0x60fd)}};
+}
+
+std::array<DriveOffsets, 5> configure_drives(ec_master_t* master, ec_domain_t* domain) {
     std::array<DriveOffsets, 5> offsets{};
-    for (std::size_t i = 0; i < offsets.size(); ++i) {
-        const auto& id = drive_config::slaves[i];
-        auto* slave = ecrt_master_slave_config(master, id.alias, id.position, id.vendor, id.product);
-        if (!slave) throw std::runtime_error("slave configuration failed");
-        if (ecrt_slave_config_pdos(slave, EC_END, drive_config::syncs))
-            throw std::runtime_error("PDO configuration failed");
-        if (ecrt_slave_config_dc(slave, drive_config::assign_activate,
-                drive_config::sync0_cycle_ns, drive_config::sync0_shift_ns,
-                drive_config::sync1_register_ns, 0))
-            throw std::runtime_error("DC configuration failed");
-        if (id.reference && ecrt_master_select_reference_clock(master, slave))
-            throw std::runtime_error("reference clock selection failed");
-        // Match PMAC's requested CSP mode. No drive enable is requested here.
-        if (ecrt_slave_config_sdo8(slave, 0x6060, 0, drive_config::mode))
-            throw std::runtime_error("mode SDO configuration failed");
-        auto reg = [&](std::uint16_t index) -> unsigned {
-            unsigned bit = 0;
-            const auto offset = ecrt_slave_config_reg_pdo_entry(slave, index, 0, domain, &bit);
-            if (offset < 0 || bit != 0) throw std::runtime_error("PDO registration/alignment failed");
-            return static_cast<unsigned>(offset);
-        };
-        offsets[i] = {reg(0x6040), reg(0x607a), reg(0x6071), reg(0x6060),
-                      reg(0x6041), reg(0x6064), reg(0x6077), reg(0x6061), reg(0x60fd)};
-    }
+    for (std::size_t i = 0; i < offsets.size(); ++i)
+        offsets[i] = configure_drive(master, domain, i).offsets;
     return offsets;
 }
 }

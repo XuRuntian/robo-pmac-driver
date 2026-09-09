@@ -1,0 +1,273 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "vendor_id": 4292872,
+    "product_code": 37458,
+    "revision": 1
+  },
+  "coe_capabilities": {
+    "SdoInfo": "1",
+    "PdoUpload": "0",
+    "PdoAssign": "1",
+    "PdoConfig": "1",
+    "SegmentedSdo": "0",
+    "CompleteAccess": "0",
+    "DiagHistory": "1"
+  },
+  "esi_default_pdos": {
+    "RxPdo": {
+      "index": 5632,
+      "sm": 2,
+      "bytes": 20,
+      "entries": [
+        {
+          "index": 24640,
+          "subindex": 0,
+          "bits": 16
+        },
+        {
+          "index": 24698,
+          "subindex": 0,
+          "bits": 32
+        },
+        {
+          "index": 24753,
+          "subindex": 0,
+          "bits": 32
+        },
+        {
+          "index": 24754,
+          "subindex": 0,
+          "bits": 16
+        },
+        {
+          "index": 24831,
+          "subindex": 0,
+          "bits": 32
+        },
+        {
+          "index": 24689,
+          "subindex": 0,
+          "bits": 16
+        },
+        {
+          "index": 24672,
+          "subindex": 0,
+          "bits": 8
+        },
+        {
+          "index": 0,
+          "subindex": 0,
+          "bits": 8
+        }
+      ]
+    },
+    "TxPdo": {
+      "index": 6656,
+      "sm": 3,
+      "bytes": 14,
+      "entries": [
+        {
+          "index": 24641,
+          "subindex": 0,
+          "bits": 16
+        },
+        {
+          "index": 24676,
+          "subindex": 0,
+          "bits": 32
+        },
+        {
+          "index": 24684,
+          "subindex": 0,
+          "bits": 32
+        },
+        {
+          "index": 24695,
+          "subindex": 0,
+          "bits": 16
+        },
+        {
+          "index": 24673,
+          "subindex": 0,
+          "bits": 8
+        },
+        {
+          "index": 0,
+          "subindex": 0,
+          "bits": 8
+        }
+      ]
+    }
+  },
+  "esi_default_assignments": {
+    "0x1c12": {
+      "count": 1,
+      "active_pdos": [
+        5632
+      ],
+      "unused_slots": [
+        0
+      ]
+    },
+    "0x1c13": {
+      "count": 1,
+      "active_pdos": [
+        6656
+      ],
+      "unused_slots": [
+        0
+      ]
+    }
+  },
+  "pmac_pdo_objects_checked": [
+    {
+      "index": 24640,
+      "direction": "R",
+      "bits": 16,
+      "type": "UINT"
+    },
+    {
+      "index": 24698,
+      "direction": "R",
+      "bits": 32,
+      "type": "DINT"
+    },
+    {
+      "index": 24689,
+      "direction": "R",
+      "bits": 16,
+      "type": "INT"
+    },
+    {
+      "index": 24672,
+      "direction": "R",
+      "bits": 8,
+      "type": "SINT"
+    },
+    {
+      "index": 24641,
+      "direction": "T",
+      "bits": 16,
+      "type": "UINT"
+    },
+    {
+      "index": 24676,
+      "direction": "T",
+      "bits": 32,
+      "type": "DINT"
+    },
+    {
+      "index": 24695,
+      "direction": "T",
+      "bits": 16,
+      "type": "INT"
+    },
+    {
+      "index": 24673,
+      "direction": "T",
+      "bits": 8,
+      "type": "SINT"
+    },
+    {
+      "index": 24829,
+      "direction": "T",
+      "bits": 32,
+      "type": "UDINT"
+    }
+  ],
+  "esi_startup_sdos": [
+    {
+      "transition": "PS",
+      "index": 24672,
+      "subindex": 0,
+      "data_hex": "08"
+    },
+    {
+      "transition": "PS",
+      "index": 24770,
+      "subindex": 1,
+      "data_hex": "02"
+    }
+  ],
+  "esi_interpolation_default_ms": 4,
+  "esi_startup_interpolation_ms": 2,
+  "esi_dc_modes": [
+    {
+      "name": "DcSync",
+      "assign_activate": 1792,
+      "CycleTimeSync0": {
+        "value": 0,
+        "factor": 1
+      },
+      "CycleTimeSync1": {
+        "value": 0,
+        "factor": 1
+      },
+      "sync0_shift_ns": 0,
+      "sync1_shift_ns": 0
+    },
+    {
+      "name": "Synchron",
+      "assign_activate": 0,
+      "CycleTimeSync0": {
+        "value": 0,
+        "factor": 1
+      },
+      "CycleTimeSync1": {
+        "value": 0,
+        "factor": 1
+      },
+      "sync0_shift_ns": 0,
+      "sync1_shift_ns": 0
+    }
+  ],
+  "esi_dc_resolved_at_selected_period": {
+    "assign_activate": 1792,
+    "sync0_cycle_ns": 1000000,
+    "sync0_shift_ns": 0,
+    "sync1_register_ns": 0,
+    "derivation": "Pinned ecrt.h: T1 = Sync0 * Factor(1); API sync1 = T1 - Sync0 + shift(0). ESI default differs from PMAC's 500000 ns register value; the initial disabled probe preserves PMAC for comparison."
+  },
+  "selected_profile": {
+    "pdo_source": "pmac_drives.json",
+    "dc": {
+      "assign_activate": 1792,
+      "sync0_cycle_ns": 1000000,
+      "sync1_register_ns": 500000,
+      "sync0_shift_ns": 0
+    },
+    "application_period_ns": 1000000,
+    "startup_sdos": [
+      {
+        "index": 24640,
+        "subindex": 0,
+        "bits": 16,
+        "value": 0
+      },
+      {
+        "index": 24672,
+        "subindex": 0,
+        "bits": 8,
+        "value": 8
+      },
+      {
+        "index": 24770,
+        "subindex": 1,
+        "bits": 8,
+        "value": 1
+      },
+      {
+        "index": 24770,
+        "subindex": 2,
+        "bits": 8,
+        "value": -3
+      }
+    ],
+    "note": "Retain PMAC PDO/DC register values; override ESI 2 ms startup to match master. Only volatile communication parameters; no encoder/motor defaults or flash save."
+  },
+  "source_sha256": {
+    "config/esi/ISMC_STANDARD_165_默认DC_20220720.xml": "6544de0c35fb8b10d0570992b2dd3e3af9d34d1f2e01ffd3c70c33da203f92ec",
+    "config/pmac_drives.json": "f78acb6e1ca3f8d0561b47217d8f921612b6471f15c8c62f6f004b947ec43f00"
+  }
+}

@@ -1,0 +1,527 @@
+{
+  "scope": "Single drive, all controlwords zero; no motion readiness validated",
+  "runs": [
+    {
+      "timestamp_utc": "2026-09-09T06:57:16.683352+00:00",
+      "slave_count": 1,
+      "errors": [
+        "RxPdo live PDO assignment/mapping differs from selected profile"
+      ],
+      "warnings": [
+        "slave 0: 0x1c12 assignment contains PDO index 0",
+        "slave 0: 0x1c13 assignment contains PDO index 0"
+      ],
+      "modules_unloaded": true,
+      "source_sha256": {
+        "build/disabled-cyclic-2026-09-09-145716-kernel.log": "6f28ef6b0b3660f8b04f66193cdfd52dad6cc01a74cf450765e931bf7a22c719",
+        "build/disabled-cyclic-2026-09-09-145716.json": "7a0928c2d0774e822e2464536c09018185d1bdcb0ee8928aa1c5c349ea7dbef5",
+        "build/disabled-cyclic-2026-09-09-145716.log": "abf44a8478b12b8f3e3a97db3b147e3e69b96403ebb9f85fb525aae5657b7d49"
+      },
+      "disabled_cyclic": {
+        "enable_commands_sent": false,
+        "started": true,
+        "before": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000557,
+          "mode_display": 0
+        },
+        "exit_code": 0,
+        "observation": {
+          "activated": 1,
+          "reached_op": 1,
+          "observation_complete": 1,
+          "controlword_always_zero": true,
+          "enable_commands_sent": false,
+          "application_period_ns": 1000000,
+          "cycles": 15324,
+          "op_cycles": 10001,
+          "incomplete_cycles_after_op": 0,
+          "non_op_cycles_after_op": 0,
+          "missed_periods": 0,
+          "max_lateness_ns": 579477,
+          "wkc_min_after_op": 3,
+          "wkc_max_after_op": 3,
+          "dc_samples_after_op": 10001,
+          "dc_missing_after_op": 0,
+          "dc_max_difference_ns_after_op": 37898,
+          "last_statusword": 576,
+          "last_mode_display": 8,
+          "initial_position": -506000555,
+          "last_position": -506000556,
+          "minimum_position": -506000560,
+          "maximum_position": -506000552
+        },
+        "slave_listing_after_release": "0  0:0  INIT  +  Diamond EtherCAT Drive",
+        "after": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000556,
+          "mode_display": 8
+        },
+        "interpolation_after": {
+          "1": {
+            "exit_code": 0,
+            "stdout": "0x01 1",
+            "stderr": ""
+          },
+          "2": {
+            "exit_code": 0,
+            "stdout": "0xfffffffd -3",
+            "stderr": ""
+          }
+        }
+      },
+      "pdo_objects_after": {
+        "0x1c12": {
+          "count": 2,
+          "values": [
+            5632,
+            0
+          ]
+        },
+        "0x1c13": {
+          "count": 2,
+          "values": [
+            6656,
+            0
+          ]
+        },
+        "0x1600": {
+          "count": 10,
+          "values": [
+            1614807056,
+            1618608160,
+            1618018320,
+            1616904200,
+            8,
+            1618018320,
+            1616904200,
+            8,
+            0,
+            0
+          ]
+        },
+        "0x1a00": {
+          "count": 12,
+          "values": [
+            1614872592,
+            1617166368,
+            1618411536,
+            1616969736,
+            8,
+            1627193376,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "timestamp_utc": "2026-09-09T06:59:52.400716+00:00",
+      "slave_count": 1,
+      "errors": [
+        "/home/xrt/水射流/robo-pmac-driver/ethercat/build/igh-install/bin/ethercat failed: Failed to upload SDO: Input/output error"
+      ],
+      "warnings": [
+        "slave 0: 0x1c12 assignment contains PDO index 0",
+        "slave 0: 0x1c13 assignment contains PDO index 0"
+      ],
+      "modules_unloaded": true,
+      "source_sha256": {
+        "build/disabled-active-readback-2026-09-09-145952-kernel.log": "656ee086e8c084cb480d2e8d03976690aa3354145eebf197f3f1f747fdba3be8",
+        "build/disabled-active-readback-2026-09-09-145952.json": "3357d74dec4f3104ae7f4b74c2dd66f67d925a90b8b5cfa43299ab90e720206b",
+        "build/disabled-active-readback-2026-09-09-145952.log": "6ed49ac441a047fe607e8b0c45d8be601687960707602898a7195c1f1d4f878e"
+      },
+      "disabled_cyclic": {
+        "enable_commands_sent": false,
+        "started": true,
+        "before": {
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000557,
+          "mode_display": 8
+        },
+        "exit_code": 1,
+        "observation": {
+          "activated": 1,
+          "reached_op": 1,
+          "observation_complete": 0,
+          "controlword_always_zero": true,
+          "enable_commands_sent": false,
+          "application_period_ns": 1000000,
+          "cycles": 7979,
+          "op_cycles": 7489,
+          "incomplete_cycles_after_op": 95,
+          "non_op_cycles_after_op": 96,
+          "missed_periods": 5,
+          "max_lateness_ns": 2632953,
+          "wkc_min_after_op": 0,
+          "wkc_max_after_op": 3,
+          "dc_samples_after_op": 7488,
+          "dc_missing_after_op": 1,
+          "dc_max_difference_ns_after_op": 84074,
+          "last_statusword": 576,
+          "last_mode_display": 8,
+          "initial_position": -506000556,
+          "last_position": -506000555,
+          "minimum_position": -506000559,
+          "maximum_position": -506000552,
+          "active_sdo_readback": [
+            {
+              "index": 7186,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7186,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 5632
+            },
+            {
+              "index": 7186,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 7187,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 2
+            },
+            {
+              "index": 7187,
+              "subindex": 1,
+              "bytes": 2,
+              "complete": 1,
+              "value": 6656
+            },
+            {
+              "index": 7187,
+              "subindex": 2,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 10
+            },
+            {
+              "index": 5632,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614807056
+            },
+            {
+              "index": 5632,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618608160
+            },
+            {
+              "index": 5632,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618018320
+            },
+            {
+              "index": 5632,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616904200
+            },
+            {
+              "index": 5632,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 5632,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 5632,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 0,
+              "bytes": 1,
+              "complete": 1,
+              "value": 12
+            },
+            {
+              "index": 6656,
+              "subindex": 1,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1614872592
+            },
+            {
+              "index": 6656,
+              "subindex": 2,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1617166368
+            },
+            {
+              "index": 6656,
+              "subindex": 3,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1618411536
+            },
+            {
+              "index": 6656,
+              "subindex": 4,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1616969736
+            },
+            {
+              "index": 6656,
+              "subindex": 5,
+              "bytes": 4,
+              "complete": 1,
+              "value": 8
+            },
+            {
+              "index": 6656,
+              "subindex": 6,
+              "bytes": 4,
+              "complete": 1,
+              "value": 1627193376
+            },
+            {
+              "index": 6656,
+              "subindex": 7,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 8,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 9,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 10,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 11,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 6656,
+              "subindex": 12,
+              "bytes": 4,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24770,
+              "subindex": 1,
+              "bytes": 1,
+              "complete": 1,
+              "value": 1
+            },
+            {
+              "index": 24770,
+              "subindex": 2,
+              "bytes": 1,
+              "complete": 1,
+              "value": 253
+            },
+            {
+              "index": 24640,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            },
+            {
+              "index": 24639,
+              "subindex": 0,
+              "bytes": 2,
+              "complete": 1,
+              "value": 0
+            }
+          ]
+        },
+        "slave_listing_after_release": "0  0:0  PREOP  +  Diamond EtherCAT Drive"
+      }
+    },
+    {
+      "timestamp_utc": "2026-09-09T07:02:09.868122+00:00",
+      "slave_count": 1,
+      "errors": [],
+      "warnings": [
+        "slave 0: 0x1c12 assignment contains PDO index 0",
+        "slave 0: 0x1c13 assignment contains PDO index 0"
+      ],
+      "modules_unloaded": true,
+      "source_sha256": {
+        "build/post-cyclic-health-2026-09-09-150209.json": "0cfd28875447d5754e8e68df61b6427dc9482d3a64c49b90964431d46db31d07",
+        "build/post-cyclic-health-2026-09-09-150209.log": "a69862bf1e969e33a2562c6ca7f44e07ced28ad2242b202628f693375c56cb13"
+      },
+      "watch_complete": true,
+      "samples": [
+        {
+          "seconds": 0.0,
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000553,
+          "mode_display": 8
+        },
+        {
+          "seconds": 1.0,
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000551,
+          "mode_display": 8
+        },
+        {
+          "seconds": 2.0,
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000551,
+          "mode_display": 8
+        },
+        {
+          "seconds": 3.0,
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000552,
+          "mode_display": 8
+        },
+        {
+          "seconds": 4.0,
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000553,
+          "mode_display": 8
+        },
+        {
+          "seconds": 5.0,
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000550,
+          "mode_display": 8
+        },
+        {
+          "seconds": 6.0,
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000552,
+          "mode_display": 8
+        },
+        {
+          "seconds": 7.0,
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000552,
+          "mode_display": 8
+        },
+        {
+          "seconds": 8.0,
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000553,
+          "mode_display": 8
+        },
+        {
+          "seconds": 9.0,
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000552,
+          "mode_display": 8
+        },
+        {
+          "seconds": 10.0,
+          "controlword": 0,
+          "statusword": 576,
+          "error_code": 0,
+          "actual_position": -506000552,
+          "mode_display": 8
+        }
+      ]
+    }
+  ]
+}

@@ -25,11 +25,22 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/drive_config.hp
     --check --header "${CMAKE_CURRENT_BINARY_DIR}/generated/drive_config.hpp"
   DEPENDS scripts/import_pmac.py config/pmac_drives.json
   VERBATIM)
-add_library(igh_config OBJECT src/igh_config.cpp "${CMAKE_CURRENT_BINARY_DIR}/generated/drive_config.hpp")
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/esi_config.hpp"
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_esi.py"
+    --check --header "${CMAKE_CURRENT_BINARY_DIR}/generated/esi_config.hpp"
+  DEPENDS scripts/check_esi.py scripts/import_pmac.py config/pmac_drives.json config/esi_review.json
+    "config/esi/ISMC_STANDARD_165_默认DC_20220720.xml"
+  VERBATIM)
+add_library(igh_config OBJECT src/igh_config.cpp "${CMAKE_CURRENT_BINARY_DIR}/generated/drive_config.hpp"
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/esi_config.hpp")
 target_link_libraries(igh_config PRIVATE offline_options)
 
 add_executable(igh_abi_check src/abi_check.cpp)
 target_link_libraries(igh_abi_check PRIVATE offline_options "${IGH_REAL}")
+add_executable(igh_disabled_probe src/disabled_probe.cpp $<TARGET_OBJECTS:igh_config>)
+target_link_libraries(igh_disabled_probe PRIVATE offline_options "${IGH_REAL}")
+add_executable(disabled_probe_tests tests/disabled_probe_tests.cpp)
+target_link_libraries(disabled_probe_tests PRIVATE offline_options)
 add_executable(igh_fake_smoke src/fake_smoke.cpp $<TARGET_OBJECTS:igh_config>)
 target_link_libraries(igh_fake_smoke PRIVATE offline_options "${IGH_FAKE}" ${CMAKE_DL_LIBS})
 # Keep RtIPC as a direct dependency: executable RUNPATH does not resolve the
@@ -42,6 +53,7 @@ target_link_libraries(offline_core_tests PRIVATE offline_options)
 add_executable(host_timing_probe src/timing_probe.cpp)
 target_compile_options(host_timing_probe PRIVATE -Wall -Wextra -Wpedantic -Werror)
 add_test(NAME core COMMAND offline_core_tests)
+add_test(NAME disabled_frame COMMAND disabled_probe_tests)
 add_test(NAME real_library_abi COMMAND igh_abi_check)
 add_test(NAME fake_master_pdo COMMAND "${Python3_EXECUTABLE}"
   "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run_fake.py" "$<TARGET_FILE:igh_fake_smoke>")
@@ -53,4 +65,10 @@ add_test(NAME reset_scope COMMAND "${Python3_EXECUTABLE}"
   "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_reset_fault_once.py")
 add_test(NAME dictionary_wait COMMAND "${Python3_EXECUTABLE}"
   "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_dictionary_wait.py")
-set_tests_properties(core real_library_abi fake_master_pdo pmac_contract importer_regression reset_scope dictionary_wait PROPERTIES TIMEOUT 30)
+add_test(NAME esi_contract COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_esi.py" --check)
+add_test(NAME esi_regression COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_esi.py")
+add_test(NAME disabled_scope COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_disabled_scope.py")
+set_tests_properties(core disabled_frame real_library_abi fake_master_pdo pmac_contract importer_regression reset_scope dictionary_wait esi_contract esi_regression disabled_scope PROPERTIES TIMEOUT 30)
