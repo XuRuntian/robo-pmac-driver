@@ -25,11 +25,13 @@ class OmegaContinuumConfig(TeleoperatorConfig):
     max_delta_z: float = 0.03
     deadband_m: float = 0.0003
     rotation_scale_x: float = -0.3
-    rotation_scale_y: float = 0.3
-    rotation_scale_z: float = 0.0
+    # External/world Ry maps to disabled continuum Rz; world Rz maps to
+    # continuum -Ry and is the supported second tilt axis.
+    rotation_scale_y: float = 0.0
+    rotation_scale_z: float = 0.3
     max_rotation_x: float = 0.45
-    max_rotation_y: float = 0.45
-    max_rotation_z: float = 0.0
+    max_rotation_y: float = 0.0
+    max_rotation_z: float = 0.45
     rotation_deadband_rad: float = 0.01
     zero_samples: int = 20
     zero_sample_period_s: float = 0.005

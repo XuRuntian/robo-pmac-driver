@@ -223,8 +223,8 @@ def test_tip_command_filter_limits_rotation_speed_and_holds() -> None:
         max_delta_m=(0.03, 0.01, 0.03),
         max_speed_m_s=(0.08, 0.003, 0.08),
         orientation_enabled=True,
-        max_rotation_delta_rad=(0.15, 0.15, 0.0),
-        max_angular_speed_rad_s=(0.3, 0.3, 0.0),
+        max_rotation_delta_rad=(0.15, 0.0, 0.15),
+        max_angular_speed_rad_s=(0.3, 0.0, 0.3),
         deadband_m=0.0003,
         smooth_alpha=1.0,
     )
@@ -242,7 +242,7 @@ def test_tip_command_filter_limits_rotation_speed_and_holds() -> None:
 
     command_filter.step()
     first_rotation = command_filter.applied_rotation
-    assert np.allclose(first_rotation, [0.006, -0.006, 0.0])
+    assert np.allclose(first_rotation, [0.006, 0.0, 0.006])
     command_filter.hold()
     command_filter.step()
     assert np.allclose(command_filter.applied_rotation, first_rotation)

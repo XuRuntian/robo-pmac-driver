@@ -131,7 +131,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--task-mode",
         choices=("position", "pos-z"),
-        default="position",
+        default="pos-z",
         help="IK task for keyboard teleop. Command frame is +X right, +Y insertion, +Z up.",
     )
     parser.add_argument(

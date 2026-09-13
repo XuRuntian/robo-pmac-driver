@@ -78,9 +78,9 @@ teleoperation baseline: Cartesian tip translation plus tip-axis direction.
 scale XYZ = [0.25, 0.08, -0.25]
 max delta XYZ = [0.03, 0.01, 0.03] m
 max speed XYZ = [0.05, 0.003, 0.05] m/s
-rotation scale XYZ = [-0.3, 0.3, 0.0]
-max rotation XYZ = [0.45, 0.45, 0.0] rad
-max angular speed XYZ = [0.45, 0.45, 0.0] rad/s
+rotation scale XYZ = [-0.3, 0.0, 0.3]
+max rotation XYZ = [0.45, 0.0, 0.45] rad
+max angular speed XYZ = [0.45, 0.0, 0.45] rad/s
 smooth_alpha = 0.5
 orientation_enabled = true
 IK task = pos_z
@@ -158,11 +158,11 @@ lerobot-record `
   --teleop.scale_z=0.25 `
   --teleop.omega_map=zyx `
   --teleop.max_rotation_x=0.45 `
-  --teleop.max_rotation_y=0.45 `
-  --teleop.max_rotation_z=0.0 `
+  --teleop.max_rotation_y=0.0 `
+  --teleop.max_rotation_z=0.45 `
   --teleop.rotation_scale_x=-0.3 `
-  --teleop.rotation_scale_y=0.3 `
-  --teleop.rotation_scale_z=0.0 `
+  --teleop.rotation_scale_y=0.0 `
+  --teleop.rotation_scale_z=0.3 `
   --teleop.rotation_deadband_rad=0.01 `
   --dataset.repo_id=local/continuum_omega_test `
   --dataset.root=D:/project/lerobot_data/continuum_omega_test `
@@ -207,8 +207,8 @@ lerobot-record `
 ```
 
 The default recorded action is the six-field Cartesian tip offset. Translation
-is in meters; `rx/ry` are tip-direction rotation-vector commands in radians,
-and `rz` is reserved at zero for the current five-axis body. The recorded robot
+is in meters; world-frame `rx/rz` are tip-direction rotation-vector commands in radians,
+while world `ry` maps to the disabled continuum-frame `Rz`. The recorded robot
 state contains axes 1-4 in radians and axis 5 in meters.
 
 ## Teleoperation Command
@@ -239,15 +239,15 @@ The default `omega_continuum` parameters are:
 Robot frame: +X right, +Y down, +Z forward/insertion
 scale XYZ = [0.25, -0.08, 0.25]
 max delta XYZ = [0.03, 0.03, 0.005] m
-rotation scale XYZ = [-0.3, 0.3, 0.0]
-max rotation XYZ = [0.45, 0.45, 0.0] rad
+rotation scale XYZ = [-0.3, 0.0, 0.3]
+max rotation XYZ = [0.45, 0.0, 0.45] rad
 rotation deadband = 0.01 rad
 ```
 
 The sign of `rotation_scale_x` is intentionally negative because the physical
-left-right bend direction was validated that way. `rotation_scale_z` remains
-zero because roll about the tip axis is not an effective independent shape
-input for the current five-axis continuum body.
+left-right bend direction was validated that way. World `rz` maps through the
+driver frame transform into continuum-frame `-Ry`; world `ry` maps to the
+disabled continuum-frame tool roll `Rz`.
 
 The ZMQ PUSH/PULL transport intentionally supports one active LeRobot robot
 client. PMAC ownership must remain exclusive to the driver service.

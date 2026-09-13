@@ -182,7 +182,7 @@ def load_robot_interface_config(
         ),
         rotation_map=_axis_map(frame_raw.get("rotation_map", "yxz"), "frame.rotation_map"),
         rotation_signs=_axis_signs(
-            frame_raw.get("rotation_signs", (1, 1, 1)),
+            frame_raw.get("rotation_signs", (1, -1, 1)),
             "frame.rotation_signs",
         ),
     )

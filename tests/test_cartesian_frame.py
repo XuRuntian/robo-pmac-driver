@@ -9,9 +9,9 @@ def test_swap_xy_and_invert_lateral_signs() -> None:
     )
 
 
-def test_swap_rx_ry_preserves_signs_and_rz() -> None:
+def test_rotation_transform_uses_same_basis_as_translation() -> None:
     np.testing.assert_array_equal(
-        swap_rx_ry(np.array([1.0, -2.0, 3.0])), [-2.0, 1.0, 3.0]
+        swap_rx_ry(np.array([1.0, -2.0, 3.0])), [1.0, -3.0, -2.0]
     )
 
 

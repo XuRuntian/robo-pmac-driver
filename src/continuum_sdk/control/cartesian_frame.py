@@ -33,9 +33,10 @@ def swap_xy_delta(delta_xyz: np.ndarray) -> np.ndarray:
 
 
 def swap_rx_ry(rotation_xyz: np.ndarray) -> np.ndarray:
-    """Convert world-frame angular vector to the continuum frame.
+    """Convert a world-frame angular vector to the continuum frame.
 
     World axes are X right, Y insertion, Z up; continuum axes are X right,
-    Y down, Z insertion.  This is the same basis transform as translation.
+    Y down, Z insertion. The legacy function name is retained for callers;
+    the actual transform is ``[rx, ry, rz] -> [rx, -rz, ry]``.
     """
-    return apply_axis_transform(rotation_xyz, "xzy", (1, 1, -1))
+    return apply_axis_transform(rotation_xyz, "xzy", (1, -1, 1))

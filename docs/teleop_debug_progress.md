@@ -1,6 +1,69 @@
 # Teleoperation Debug Progress
 
-Date: 2026-05-26
+Date: 2026-09-13
+
+## Handoff Update: Coordinate and Rotation Semantics
+
+The external keyboard/API frame is the world frame:
+
+```text
++X = right, +Y = forward/insertion, +Z = up
+```
+
+The continuum IK frame is:
+
+```text
++X = right, +Y = down, +Z = forward/insertion
+```
+
+The shared transform in the interface YAML files is:
+
+```text
+[x, y, z]       -> [x, -z, y]
+[rx, ry, rz]    -> [rx, -rz, ry]
+```
+
+The current mechanism supports world-frame `Rx` and `Rz`. World-frame `Ry`
+maps to continuum-frame `Rz` (tool-axis roll), which is disabled. The interface
+limits therefore use `[Rx, Ry, Rz] = [enabled, disabled, enabled]`.
+
+Keyboard pose controls in `apps/teleop_pvt_keyboard_pose.py` are:
+
+```text
+A/D = world X, Q/E = world Y, W/S = world Z
+U/J = world Rx, I/K = world Rz
+world Ry = disabled
+```
+
+Use the dedicated rotation test with `--axes rxrz`; do not use the old `rxry`
+test convention.
+
+The full offline chain is available in `apps/debug_full_chain.py`:
+
+```bash
+uv run python apps/debug_full_chain.py --dx 1
+uv run python apps/debug_full_chain.py --dy 1
+uv run python apps/debug_full_chain.py --dz 1
+uv run python apps/debug_full_chain.py --rx 2
+uv run python apps/debug_full_chain.py --rz 2
+```
+
+The logical-to-PMAC mapping remains `[alpha1, alpha2, alpha3, alpha4, d]` to
+physical axes `[2, 1, 3, 4, 5]` with signs `[+, -, -, -, +]`. The actuator
+parameters are synchronized with the hardware test: hole radius `0.00215 m`
+and spool diameter `0.012 m`.
+
+Validation completed on this handoff:
+
+```text
+robo-pmac-driver tests excluding the Omega hardware test: 72 passed
+tdrc_robot_system PMAC bridge tests: 4 passed
+debug_full_chain Rx/Rz dry-runs: passed
+```
+
+Physical PMAC motion has not been run after these changes. Start the driver
+with the selected interface config and `--execute` only after checking the
+dry-run pulse deltas and the emergency stop path.
 
 This file records the current teleoperation debugging state so a new Codex/chat window can resume quickly.
 

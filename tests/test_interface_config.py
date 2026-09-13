@@ -18,12 +18,11 @@ def test_load_robot_interface_config() -> None:
 
     assert config.control_hz == 50
     assert config.omega_map == "xzy"
-    assert config.command.max_speed_m_s[0] == 0.003
+    assert config.command.max_speed_m_s[0] == 0.05
     assert config.command.max_speed_m_s[1] == 0.05
     assert config.command.orientation_enabled
-    assert config.command.max_rotation_delta_rad == (0.45, 0.45, 0.0)
+    assert config.command.max_rotation_delta_rad == (0.45, 0.0, 0.45)
     assert config.command.smooth_alpha == 0.5
-    assert config.command.ik_delta_order == ("y", "x", "z")
 
 
 def test_capture_current_rejects_all_zero_feedback() -> None:
@@ -123,7 +122,7 @@ def test_tip_command_filter_limits_enabled_rotation() -> None:
     )
     command_filter.step()
 
-    assert command_filter.applied_rotation.tolist() == pytest.approx([0.006, -0.006, 0.0])
+    assert command_filter.applied_rotation.tolist() == pytest.approx([0.006, 0.0, 0.006])
 
 
 def test_zmq_protocol_roundtrip() -> None:

@@ -34,7 +34,8 @@ ik:
   max_delta_u: [0.0003, 0.0025, 0.0025, 0.0025, 0.0025]
 
 actuation:
-  hole_radius_m: 0.003
+  # Matched to tdrc_robot_system/scripts/hardware/interactive_pmac_joint_test.py.
+  hole_radius_m: 0.00215
   spool_diameter_m: 0.012
 
 control:

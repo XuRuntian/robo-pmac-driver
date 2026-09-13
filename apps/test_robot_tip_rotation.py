@@ -18,7 +18,7 @@ ACTION_KEYS = (
     "tip_delta_ry",
     "tip_delta_rz",
 )
-ROTATION_AXES = ("rx", "ry")
+ROTATION_AXES = ("rx", "rz")
 
 
 def parse_args() -> argparse.Namespace:
@@ -33,8 +33,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hold-s", type=float, default=2.0)
     parser.add_argument("--zero-hold-s", type=float, default=1.0)
     parser.add_argument("--amplitude-rx-rad", type=float, default=0.02)
-    parser.add_argument("--amplitude-ry-rad", type=float, default=0.02)
-    parser.add_argument("--axes", default="rxry", help="Rotation axes to test: rx, ry, or rxry.")
+    parser.add_argument("--amplitude-rz-rad", dest="amplitude_rz_rad", type=float, default=0.02)
+    parser.add_argument("--axes", default="rxrz", help="World rotation axes to test: rx, rz, or rxrz.")
     return parser.parse_args()
 
 
@@ -125,12 +125,12 @@ def run_phase(
 def validate_axes(raw_axes: str) -> list[str]:
     normalized = raw_axes.lower().replace(",", "").replace(" ", "")
     if not normalized or len(normalized) % 2 != 0:
-        raise ValueError("--axes must contain rx and/or ry, for example rx, ry, or rxry.")
+        raise ValueError("--axes must contain rx and/or rz, for example rx, rz, or rxrz.")
     axes = []
     for index in range(0, len(normalized), 2):
         axis = normalized[index : index + 2]
         if axis not in ROTATION_AXES or axis in axes:
-            raise ValueError("--axes must contain rx and/or ry, for example rx, ry, or rxry.")
+            raise ValueError("--axes must contain rx and/or rz, for example rx, rz, or rxrz.")
         axes.append(axis)
     return axes
 
@@ -144,7 +144,7 @@ def main() -> None:
     except ValueError as exc:
         raise SystemExit(f"error: {exc}") from None
 
-    amplitudes = {"rx": abs(float(args.amplitude_rx_rad)), "ry": abs(float(args.amplitude_ry_rad))}
+    amplitudes = {"rx": abs(float(args.amplitude_rx_rad)), "rz": abs(float(args.amplitude_rz_rad))}
     if any(value <= 0.0 or value > 2.0 for value in amplitudes.values()):
         raise SystemExit("rotation amplitudes must be in (0, 1.8] rad for the rotation config")
 
@@ -161,8 +161,8 @@ def main() -> None:
 
     sequence = 0
     current = zero_action()
-    print("Tip rotation test connected. rx/ry tilt the tip axis; rz is not tested.")
-    print(f"Requested amplitudes: rx={amplitudes['rx']:.4f} rad, ry={amplitudes['ry']:.4f} rad.")
+    print("Tip rotation test connected. World rx/rz tilt the tip axis; world ry is disabled.")
+    print(f"Requested amplitudes: rx={amplitudes['rx']:.4f} rad, rz={amplitudes['rz']:.4f} rad.")
     print("Press Ctrl+C to stop and hold the current driver target.")
 
     try:

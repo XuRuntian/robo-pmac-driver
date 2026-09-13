@@ -137,16 +137,17 @@ Cartesian commissioning corrections are configured in the selected
 frame:
   translation_map: xzy
   translation_signs: [1, -1, 1]
-  rotation_map: yxz
-  rotation_signs: [1, 1, 1]
+  rotation_map: xzy
+  rotation_signs: [1, -1, 1]
 ```
 
 Each output axis takes the source axis named by its map and applies the
 corresponding sign. The current values therefore convert the external
 standard frame with `[x, y, z] -> [x, -z, y]` for the existing internal IK
-frame, while still swapping `rx`/`ry` without changing their signs.
-These frame corrections are separate from the physical PMAC `axis_order` and
-`axis_signs` settings.
+frame. These frame corrections are separate from the physical PMAC
+`axis_order` and `axis_signs` settings. The current mechanism supports
+world-frame tip-axis tilt through `rx`/`rz`; world `ry` maps to the disabled
+continuum-frame tool roll `Rz`.
 
 The Omega device's source-axis mapping is deliberately not part of this
 robot-frame configuration.  Configure it with the Omega adapter's own

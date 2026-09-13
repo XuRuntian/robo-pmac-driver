@@ -47,7 +47,7 @@ class MujocoMirror:
         self.data = mj.MjData(self.model)
         self.viewer = mjviewer.launch_passive(self.model, self.data, show_left_ui=True)
         self.physics_steps = max(1, int(physics_steps))
-        self.motor_model = TDRCJointMotorModel(hole_radius=0.003, spool_diameter=0.012)
+        self.motor_model = TDRCJointMotorModel(hole_radius=0.00215, spool_diameter=0.012)
         self.actuators = {
             name: int(mj.mj_name2id(self.model, mj.mjtObj.mjOBJ_ACTUATOR, name))
             for name in ("a_x", "a_y", "c_x", "c_y", "lin_pos_control")
@@ -134,17 +134,19 @@ class PosePlanner:
         linear_speed_m_s: float,
         angular_speed_rad_s: float,
         max_delta_xyz_m: tuple[float, float, float],
-        max_delta_rxy_rad: tuple[float, float],
+        max_delta_rxz_rad: tuple[float, float],
     ) -> None:
         self.linear_speed = float(linear_speed_m_s)
         self.angular_speed = float(angular_speed_rad_s)
-        self.max_delta = [*map(float, max_delta_xyz_m), *map(float, max_delta_rxy_rad)]
+        self.max_delta = [*map(float, max_delta_xyz_m), *map(float, max_delta_rxz_rad)]
         self.delta = [0.0] * 5
 
     def update(self, keys: set[str], dt_s: float) -> list[float]:
         direction = [0.0] * 5
         # World-frame commissioning layout:
-        # a/d = Z, q/e = Y (insertion), w/s = X, u/j = RZ.
+        # a/d = Z, q/e = Y (insertion), w/s = X,
+        # u/j = RX, i/k = RZ. World Ry is unavailable because it maps to
+        # continuum-frame Rz, the disabled tool-roll DOF.
         if "a" in keys:
             direction[2] -= 1.0
         if "d" in keys:
@@ -158,8 +160,12 @@ class PosePlanner:
         if "s" in keys:
             direction[0] -= 1.0
         if "u" in keys:
-            direction[4] += 1.0
+            direction[3] += 1.0
         if "j" in keys:
+            direction[3] -= 1.0
+        if "i" in keys:
+            direction[4] += 1.0
+        if "k" in keys:
             direction[4] -= 1.0
 
         for index in range(3):
@@ -259,7 +265,7 @@ def ramp_to_zero(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Keyboard control of XYZ and RX/RY through the running continuum driver."
+        description="Keyboard control of XYZ and world RX/RZ through the running continuum driver."
     )
     parser.add_argument("--remote-ip", default="127.0.0.1")
     parser.add_argument("--command-port", type=int, default=5555)
@@ -271,7 +277,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-delta-y-mm", type=float, default=70.0)
     parser.add_argument("--max-delta-z-mm", type=float, default=70.0)
     parser.add_argument("--max-delta-rx-rad", type=float, default=4.0)
-    parser.add_argument("--max-delta-ry-rad", type=float, default=4.0)
+    parser.add_argument(
+        "--max-delta-rz-rad",
+        dest="max_delta_rz_rad", type=float, default=4.0,
+        help="World Rz limit in radians.",
+    )
     parser.add_argument("--return-s", type=float, default=5.0)
     parser.add_argument(
         "--mujoco",
@@ -333,7 +343,7 @@ def main() -> None:
             abs(args.max_delta_y_mm) / 1000.0,
             abs(args.max_delta_z_mm) / 1000.0,
         ),
-        max_delta_rxy_rad=(abs(args.max_delta_rx_rad), abs(args.max_delta_ry_rad)),
+        max_delta_rxz_rad=(abs(args.max_delta_rx_rad), abs(args.max_delta_rz_rad)),
     )
     kbd = KeyboardDevice()
     sequence = 0
@@ -346,13 +356,13 @@ def main() -> None:
     log_writer = csv.DictWriter(log_file, fieldnames=fields)
     log_writer.writeheader()
     interval = 1.0 / args.rate_hz
-    print("Keyboard XYZ+RX/RY teleop started (command frame: +X right, +Y insertion, +Z up).")
+    print("Keyboard XYZ+RX/RZ teleop started (world frame: +X right, +Y insertion, +Z up).")
     print("A/D: X-,X+ | Q/E: Y+,Y- | W/S: Z+,Z-")
-    print("U/J: RX+,RX- | I/K: RY+,RY- | Esc/Ctrl+C: return to startup position")
+    print("U/J: RX+,RX- | I/K: RZ+,RZ- | world Ry: disabled | Esc/Ctrl+C: return to startup position")
     print(
         f"Limits: xyz=[{args.max_delta_x_mm:g}, {args.max_delta_y_mm:g}, "
         f"{args.max_delta_z_mm:g}] mm, "
-        f"rxy=[{args.max_delta_rx_rad:g}, {args.max_delta_ry_rad:g}] rad"
+        f"rxz=[{args.max_delta_rx_rad:g}, {args.max_delta_rz_rad:g}] rad"
     )
 
     try:
@@ -381,7 +391,7 @@ def main() -> None:
                 print(
                     f"target xyz=[{delta[0] * 1000:+.1f}, {delta[1] * 1000:+.1f}, "
                     f"{delta[2] * 1000:+.1f}]mm "
-                    f"rxy=[{delta[3]:+.3f}, {delta[4]:+.3f}]rad | "
+                    f"rxz=[{delta[3]:+.3f}, {delta[4]:+.3f}]rad | "
                     f"{state_text(state_message)}"
                 )
             next_call += interval
