@@ -164,7 +164,11 @@ class DLSIK:
         g = self.geometry
         d, th_a, ph_a, th_c, ph_c = self._clip_u(np.asarray(self.u if u is None else u, dtype=float))
 
-        r = rotx(-math.pi / 2.0)
+        # Geometry is expressed directly in the corrected robot frame:
+        # +X right, +Y down, +Z forward/insertion.  The previous model used
+        # an Rx(-pi/2) basis where insertion was old +Y; removing that basis
+        # rotation makes the local segment +Z coincide with robot +Z.
+        r = np.eye(3, dtype=float)
         p = np.array(g.base_offset, dtype=float)
 
         p = p + r @ np.array([0.0, 0.0, d], dtype=float)

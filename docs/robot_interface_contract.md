@@ -126,20 +126,47 @@ The existing `OmegaDevice` is only a project convenience wrapper around that
 SDK. A future integration may either keep it or use the official SDK directly.
 It should not create a second semantic action format.
 
-The currently tested translation mapping is:
+The existing internal IK frame is `+X=right`, `+Y=down`, `+Z=forward/insertion`.
+The external command frame is standard right-handed: `+X=right`,
+`+Y=forward/insertion`, `+Z=up`.
+
+Cartesian commissioning corrections are configured in the selected
+`config/robot_interface*.yaml` file rather than in the PMAC motor map:
+
+```yaml
+frame:
+  translation_map: xzy
+  translation_signs: [1, -1, 1]
+  rotation_map: yxz
+  rotation_signs: [1, 1, 1]
+```
+
+Each output axis takes the source axis named by its map and applies the
+corresponding sign. The current values therefore convert the external
+standard frame with `[x, y, z] -> [x, -z, y]` for the existing internal IK
+frame, while still swapping `rx`/`ry` without changing their signs.
+These frame corrections are separate from the physical PMAC `axis_order` and
+`axis_signs` settings.
+
+The Omega device's source-axis mapping is deliberately not part of this
+robot-frame configuration.  Configure it with the Omega adapter's own
+`--omega-map` option.
+The translation mapping is:
 
 | Omega motion | Robot channel | Mechanism |
 | --- | --- | --- |
-| X | robot Y | axis 5 linear unit |
-| Y | robot Z | bending through axes 1-4 |
 | Z | robot X | bending through axes 1-4 |
+| Y | robot Y (sign-inverted) | bending through axes 1-4 |
+| X | robot Z | axis 5 linear unit |
 
-`omega_map: zxy` means robot XYZ receives Omega ZXY.
+`omega_map: zyx` means robot XYZ receives Omega ZYX.  The robot-Y scale is
+negative because the corrected +Y direction is opposite the previous upward
+direction.
 
 Omega orientation is sampled at startup and converted into a relative rotation
-vector in the startup handle frame. Its components currently use the same
-`zxy` permutation as translation. Rotation direction and scale must be
-validated with small motions before increasing the configured limits.
+vector in the startup handle frame. Rotation commands are tip-local, so the
+validated `zxy` rotation permutation is retained; direction and scale must
+still be validated with small motions before increasing the configured limits.
 
 ## Initial Position
 

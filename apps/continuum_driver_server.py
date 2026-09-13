@@ -13,6 +13,7 @@ import numpy as np
 import zmq
 
 from continuum_sdk.control.axis_mapper import ContinuumAxisMapper
+from continuum_sdk.control.cartesian_frame import apply_axis_transform
 from continuum_sdk.control.pvt_mapper import ContinuumPVTMapper
 from continuum_sdk.control.tip_command_filter import TipCommandFilter
 from continuum_sdk.core.config_loader import load_continuum_config
@@ -540,7 +541,7 @@ def main() -> None:
         command_filter = TipCommandFilter(interface_cfg.command, update_interval)
         linear_physical_idx = axis_mapper.axis_order[4]
         max_linear_step_pulses = (
-            abs(pmac_cfg.pulses_per_meter * interface_cfg.command.max_speed_m_s[1] * update_interval)
+            abs(pmac_cfg.pulses_per_meter * interface_cfg.command.max_speed_m_s[2] * update_interval)
         )
         if robot is not None:
             max_linear_step_pulses = min(max_linear_step_pulses, robot.pvt_axis5_max_step)
@@ -596,6 +597,10 @@ def main() -> None:
             f"commands=tcp://{args.bind_host}:{args.command_port} | "
             f"state=tcp://{args.bind_host}:{args.state_port}"
         )
+        print(
+            "Command frame: +X right, +Y forward/insertion, +Z up; "
+            "internal IK frame: +X right, +Y down, +Z insertion."
+        )
         print(f"Base pulses: {base_pulses}")
         if args.lock_linear_axis:
             print("Linear insertion axis locked at startup base pulse for diagnostics.")
@@ -637,7 +642,11 @@ def main() -> None:
                     watchdog_holding = True
 
                 applied_delta = command_filter.step()
-                applied_rotation = command_filter.applied_rotation
+                applied_rotation = apply_axis_transform(
+                    command_filter.applied_rotation,
+                    interface_cfg.frame.rotation_map,
+                    interface_cfg.frame.rotation_signs,
+                )
                 r_goal = (
                     center_r @ rotvec_to_matrix(applied_rotation)
                     if interface_cfg.command.orientation_enabled
@@ -651,7 +660,12 @@ def main() -> None:
                     )
                 else:
                     pvt_command = pvt_mapper.build_command(
-                        center_p + applied_delta,
+                        center_p
+                        + apply_axis_transform(
+                            applied_delta,
+                            interface_cfg.frame.translation_map,
+                            interface_cfg.frame.translation_signs,
+                        ),
                         z_goal=None if r_goal is None else r_goal[:, 2],
                     )
 

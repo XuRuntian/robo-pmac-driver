@@ -34,13 +34,13 @@ DESIRED_ROBOT_PHASES = (
         "robot_plus_y",
         "translation",
         "y",
-        "Move the Omega in the direction that should command ROBOT +Y (inward/insertion), then hold.",
+        "Move the Omega in the direction that should command ROBOT +Y (down), then hold.",
     ),
     Phase(
         "robot_plus_z",
         "translation",
         "z",
-        "Move the Omega in the direction that should command ROBOT +Z (up), then hold.",
+        "Move the Omega in the direction that should command ROBOT +Z (forward/insertion), then hold.",
     ),
     Phase(
         "robot_plus_rx",

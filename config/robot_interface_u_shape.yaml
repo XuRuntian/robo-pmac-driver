@@ -3,7 +3,13 @@
 # Tested with LeRobot omega_continuum rotation scale [-0.3, 0.3, 0.0].
 control_hz: 50
 
-omega_map: zxy
+# External command frame: +X right, +Y forward/insertion, +Z up.
+# Internal IK frame remains +X right, +Y down, +Z forward/insertion.
+frame:
+  translation_map: xzy
+  translation_signs: [1, -1, 1]
+  rotation_map: xzy
+  rotation_signs: [1, 1, -1]
 
 initial_position:
   mode: capture_current
@@ -13,8 +19,8 @@ initial_position:
   tolerance_pulses: null
 
 command:
-  max_delta_m: [0.03, 0.01, 0.03]
-  max_speed_m_s: [0.05, 0.003, 0.05]
+  max_delta_m: [0.03, 0.03, 0.005]
+  max_speed_m_s: [0.05, 0.05, 0.0015]
 
   orientation_enabled: true
   # rx/ry change the commanded tip-axis direction. rz is tool-roll and is

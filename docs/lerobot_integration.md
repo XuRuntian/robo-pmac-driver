@@ -154,9 +154,9 @@ lerobot-record `
   --teleop.id=omega_master `
   --teleop.simulate=true `
   --teleop.scale_x=0.25 `
-  --teleop.scale_y=0.08 `
-  --teleop.scale_z=-0.25 `
-  --teleop.omega_map=zxy `
+  --teleop.scale_y=-0.08 `
+  --teleop.scale_z=0.25 `
+  --teleop.omega_map=zyx `
   --teleop.max_rotation_x=0.45 `
   --teleop.max_rotation_y=0.45 `
   --teleop.max_rotation_z=0.0 `
@@ -236,8 +236,9 @@ lerobot-teleoperate `
 The default `omega_continuum` parameters are:
 
 ```text
-scale XYZ = [0.25, 0.08, -0.25]
-max delta XYZ = [0.03, 0.01, 0.03] m
+Robot frame: +X right, +Y down, +Z forward/insertion
+scale XYZ = [0.25, -0.08, 0.25]
+max delta XYZ = [0.03, 0.03, 0.005] m
 rotation scale XYZ = [-0.3, 0.3, 0.0]
 max rotation XYZ = [0.45, 0.45, 0.0] rad
 rotation deadband = 0.01 rad

@@ -10,9 +10,12 @@ from lerobot.teleoperators.config import TeleoperatorConfig
 class OmegaContinuumConfig(TeleoperatorConfig):
     simulate: bool = False
     scale_x: float = 0.5
-    scale_y: float = 0.08
+    # Corrected robot frame: +X right, +Y down, +Z forward/insertion.
+    scale_y: float = -0.08
     scale_z: float = 0.25
-    omega_map: str = "zxy"
+    omega_map: str = "zyx"
+    # Rotation commands are tip-local; their validated physical basis is
+    # unchanged by the world-frame relabeling used for translation.
     rotation_map: str = "zxy"
     position_offset_x: float = 0.0
     position_offset_y: float = 0.0

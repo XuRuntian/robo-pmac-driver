@@ -16,6 +16,22 @@ def _five_ints(values: object, field_name: str) -> tuple[int, int, int, int, int
     return tuple(int(value) for value in values)
 
 
+def _axis_map(value: object, field_name: str) -> str:
+    mapping = str(value).lower()
+    if sorted(mapping) != ["x", "y", "z"]:
+        raise ValueError(f"{field_name} must be a permutation of xyz.")
+    return mapping
+
+
+def _axis_signs(value: object, field_name: str) -> tuple[int, int, int]:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ValueError(f"{field_name} must contain exactly three signs.")
+    signs = tuple(int(sign) for sign in value)
+    if any(sign not in (-1, 1) for sign in signs):
+        raise ValueError(f"{field_name} values must be +1 or -1.")
+    return signs
+
+
 @dataclass(frozen=True)
 class InitialPositionConfig:
     mode: InitialPositionMode
@@ -60,9 +76,20 @@ class CartesianCommandConfig:
 
 
 @dataclass(frozen=True)
+class CartesianFrameConfig:
+    """Command-to-robot Cartesian axis permutations and sign corrections."""
+
+    translation_map: str
+    translation_signs: tuple[int, int, int]
+    rotation_map: str
+    rotation_signs: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
 class RobotInterfaceConfig:
     control_hz: int
     omega_map: str
+    frame: CartesianFrameConfig
     initial_position: InitialPositionConfig
     command: CartesianCommandConfig
 
@@ -142,13 +169,28 @@ def load_robot_interface_config(
             "Enabled orientation control requires non-zero rotation and angular speed limits."
         )
 
-    omega_map = str(raw["omega_map"]).lower()
-    if sorted(omega_map) != ["x", "y", "z"]:
-        raise ValueError("omega_map must be a permutation of xyz.")
+    # Kept only as a backwards-compatible metadata field.  Robot-frame
+    # conversion is controlled by frame.*; Omega source mapping belongs to
+    # the Omega adapter and is intentionally independent.
+    omega_map = _axis_map(raw.get("omega_map", "xyz"), "omega_map")
+    frame_raw = raw.get("frame", {})
+    frame = CartesianFrameConfig(
+        translation_map=_axis_map(frame_raw.get("translation_map", "yxz"), "frame.translation_map"),
+        translation_signs=_axis_signs(
+            frame_raw.get("translation_signs", (-1, -1, 1)),
+            "frame.translation_signs",
+        ),
+        rotation_map=_axis_map(frame_raw.get("rotation_map", "yxz"), "frame.rotation_map"),
+        rotation_signs=_axis_signs(
+            frame_raw.get("rotation_signs", (1, 1, 1)),
+            "frame.rotation_signs",
+        ),
+    )
 
     return RobotInterfaceConfig(
         control_hz=int(raw["control_hz"]),
         omega_map=omega_map,
+        frame=frame,
         initial_position=initial,
         command=command,
     )

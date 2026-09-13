@@ -12,7 +12,10 @@ class ContinuumGeometry:
     d_min: float = 0.0
     d_max: float = 0.255
     use_sheath: bool = False
-    base_offset: tuple[float, float, float] = (0.0, 0.4402, 0.207)
+    # Robot frame: +X right, +Y down, +Z forward/insertion.
+    # This is the old model base offset [0, +Y, +Z] expressed in the
+    # corrected frame: [0, -old_Z, old_Y].
+    base_offset: tuple[float, float, float] = (0.0, -0.207, 0.4402)
 
     def insertion_bounds(self) -> tuple[float, float]:
         return self.d_min, self.d_max

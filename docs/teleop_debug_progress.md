@@ -191,7 +191,9 @@ Do not judge final manipulator tip responsiveness yet. That has to wait until th
 
 ## Known Model Behavior
 
-The logical `d` coordinate maps to the physical linear axis, axis 5. In the current FK frame, `d` strongly affects world Y. Therefore:
+The logical `d` coordinate maps to the physical linear axis, axis 5. In the
+corrected FK frame, `d` strongly affects robot +Z (forward/insertion).
+Therefore:
 
 - Keyboard `Q/E` Y motion can drive axis 5.
 - Omega `scale-y` can drive axis 5.
@@ -217,7 +219,7 @@ Before continuing after a fatal error, reset PMAC state fully rather than only c
 Observed during Omega testing:
 
 ```bash
-python apps/test_omega_continuum_teleop.py --execute --duration 180 --scale-x 0.25 --scale-y 0.08 --scale-z 0.25 --max-delta-x 0.03 --max-delta-y 0.005 --max-delta-z 0.03
+python apps/test_omega_continuum_teleop.py --execute --duration 180 --scale-x 0.25 --scale-y -0.08 --scale-z 0.25 --omega-map zyx --max-delta-x 0.03 --max-delta-y 0.005 --max-delta-z 0.005
 ```
 
 If the Omega master is moved aggressively, physical axis 5 can enter amp fault. Restarting Python alone may still show amp fault because the drive/PMAC state is latched and old PVT/PLC state may remain active.
@@ -229,7 +231,8 @@ The likely cause is not `--max-delta-y` alone. `--max-delta-y` limits total Y tr
 - `--deadband`: ignore small Omega noise in robot-space meters.
 - `--smooth-alpha`: low-pass filter the Omega target.
 - `--max-speed-x/y/z`: Cartesian target slew-rate limits.
-- A physical pulse-step clamp for axis 5 derived from `--max-speed-y`.
+- A physical pulse-step clamp for axis 5 derived from `--max-speed-z` (the
+  corrected robot +Z insertion axis).
 - `--feedback-hz` and `--log-csv`: sample PMAC position feedback and log target/actual/error pulses.
 
 After an amp fault, recover PMAC before rerunning teleop. The intended manual/gpascii recovery shape is:
@@ -260,13 +263,13 @@ If `#1..5j/` cannot clear the drive fault, clear/power-cycle the axis-5 amplifie
 Recommended next Omega retest after recovery:
 
 ```bash
-python apps/test_omega_continuum_teleop.py --execute --duration 120 --scale-x 0.25 --scale-y 0.08 --scale-z 0.25 --max-delta-x 0.03 --max-delta-y 0.005 --max-delta-z 0.03 --max-speed-x 0.02 --max-speed-y 0.0015 --max-speed-z 0.02 --deadband 0.0003 --smooth-alpha 0.25
+python apps/test_omega_continuum_teleop.py --execute --duration 120 --scale-x 0.25 --scale-y -0.08 --scale-z 0.25 --omega-map zyx --max-delta-x 0.03 --max-delta-y 0.005 --max-delta-z 0.005 --max-speed-x 0.02 --max-speed-y 0.02 --max-speed-z 0.0015 --deadband 0.0003 --smooth-alpha 0.25
 ```
 
 For tracking analysis, add CSV logging:
 
 ```bash
-python apps/test_omega_continuum_teleop.py --execute --duration 60 --scale-x 0.25 --scale-y 0.08 --scale-z 0.25 --max-delta-x 0.03 --max-delta-y 0.01 --max-delta-z 0.03 --max-speed-x 0.02 --max-speed-y 0.0015 --max-speed-z 0.02 --deadband 0.0003 --smooth-alpha 0.25 --feedback-hz 10 --log-csv logs/omega_axis5_tracking.csv
+python apps/test_omega_continuum_teleop.py --execute --duration 60 --scale-x 0.25 --scale-y -0.08 --scale-z 0.25 --omega-map zyx --max-delta-x 0.03 --max-delta-y 0.01 --max-delta-z 0.005 --max-speed-x 0.02 --max-speed-y 0.02 --max-speed-z 0.0015 --deadband 0.0003 --smooth-alpha 0.25 --feedback-hz 10 --log-csv logs/omega_axis5_tracking.csv
 ```
 
 ## Notes For The Next Window

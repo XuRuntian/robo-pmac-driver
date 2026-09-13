@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from continuum_sdk.control.axis_mapper import ContinuumAxisMapper
+from continuum_sdk.control.cartesian_frame import apply_axis_transform
 from continuum_sdk.control.pvt_mapper import ContinuumPVTMapper
 from continuum_sdk.core.config_loader import load_continuum_config
 from continuum_sdk.core.factory import build_continuum_ik, build_tendon_mapper
@@ -70,23 +71,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--interface-config", default="config/robot_interface.yaml")
     parser.add_argument("--pmac-ip", default="192.168.0.200")
     parser.add_argument("--scale-x", type=float, default=0.6, help="Robot meters per Omega meter on X.")
-    parser.add_argument("--scale-y", type=float, default=0.6, help="Robot meters per Omega meter on Y.")
-    parser.add_argument("--scale-z", type=float, default=0.6, help="Robot meters per Omega meter on Z.")
+    parser.add_argument("--scale-y", type=float, default=-0.6, help="Robot meters per Omega meter on corrected +Y (down).")
+    parser.add_argument("--scale-z", type=float, default=0.6, help="Robot meters per Omega meter on corrected +Z/insertion.")
     parser.add_argument(
         "--omega-map",
-        default="zxy",
+        default="zyx",
         choices=("xyz", "xzy", "yxz", "yzx", "zxy", "zyx"),
         help=(
-            "Source Omega axes for robot XYZ. Default zxy means "
-            "robot X<-Omega Z, robot Y/linear<-Omega X, robot Z<-Omega Y."
+            "Source Omega axes for robot XYZ. Default zyx means "
+            "robot X<-Omega Z, robot Y<-Omega Y (sign-inverted), robot Z/insertion<-Omega X. "
+            "This is independent of the robot interface frame mapping."
         ),
     )
     parser.add_argument("--max-delta-x", type=float, default=0.01, help="Clamp robot X offset from neutral, in meters.")
-    parser.add_argument("--max-delta-y", type=float, default=0.01, help="Clamp robot Y offset from neutral, in meters.")
-    parser.add_argument("--max-delta-z", type=float, default=0.01, help="Clamp robot Z offset from neutral, in meters.")
+    parser.add_argument("--max-delta-y", type=float, default=0.01, help="Clamp robot Y/down offset from neutral, in meters.")
+    parser.add_argument("--max-delta-z", type=float, default=0.01, help="Clamp robot Z/insertion offset from neutral, in meters.")
     parser.add_argument("--max-speed-x", type=float, default=0.02, help="Limit robot X target slew rate, in m/s.")
-    parser.add_argument("--max-speed-y", type=float, default=0.002, help="Limit robot Y/linear-axis target slew rate, in m/s.")
-    parser.add_argument("--max-speed-z", type=float, default=0.02, help="Limit robot Z target slew rate, in m/s.")
+    parser.add_argument("--max-speed-y", type=float, default=0.02, help="Limit robot Y/down target slew rate, in m/s.")
+    parser.add_argument("--max-speed-z", type=float, default=0.0015, help="Limit robot Z/insertion target slew rate, in m/s.")
     parser.add_argument("--deadband", type=float, default=0.0003, help="Ignore small robot-space Omega deltas, in meters.")
     parser.add_argument(
         "--smooth-alpha",
@@ -254,7 +256,12 @@ def main() -> None:
                 break
 
             haptic_state = omega.get_state()
-            p_goal = omega_mapper.solve(haptic_state, update_interval)
+            omega_goal = omega_mapper.solve(haptic_state, update_interval)
+            p_goal = center_p + apply_axis_transform(
+                omega_goal - center_p,
+                interface_cfg.frame.translation_map,
+                interface_cfg.frame.translation_signs,
+            )
             command = pvt_mapper.build_command(p_goal)
             if args.lock_linear_axis:
                 command.axis_targets[4] = 0.0

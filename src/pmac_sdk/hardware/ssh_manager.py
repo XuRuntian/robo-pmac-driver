@@ -29,7 +29,15 @@ class PMACHardwareManager:
                 output = stdout.read().decode(errors="replace").strip()
                 error = stderr.read().decode(errors="replace").strip()
                 exit_code = stdout.channel.recv_exit_status()
-                if exit_code or error or re.search(r"\b(?:ERR\d*|error)\b", output, re.I):
+                # gpascii returns exit code 1 on normal EOF after piped stdin.
+                # Therefore exit_code == 1 is not a PMAC command failure.
+                pmac_error = re.search(
+                    r"(?:\bERR\d*\b|\berror\s*(?:#\d+)?\b|ILLEGAL\s+CMD)",
+                    output,
+                    re.I,
+                )
+
+                if error or pmac_error or exit_code not in (0, 1):
                     raise RuntimeError(
                         f"PMAC command failed ({description}): {command}; "
                         f"exit={exit_code}, stdout={output!r}, stderr={error!r}"

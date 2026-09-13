@@ -1,9 +1,17 @@
 # Framework-independent robot interface contract used before the LeRobot adapter.
 control_hz: 50
 
-# Robot XYZ sources from Omega axes:
-# robot X <- Omega Z, robot Y/linear <- Omega X, robot Z <- Omega Y.
-omega_map: zxy
+# External command frame: +X right, +Y forward/insertion, +Z up.
+# Internal IK frame remains +X right, +Y down, +Z forward/insertion.
+# External standard right-handed XYZ command -> existing internal IK frame.
+# Internal frame remains +X right, +Y down, +Z insertion.
+frame:
+  translation_map: xzy
+  translation_signs: [1, -1, 1]
+  # Angular vectors use the same basis change as XYZ vectors:
+  # world [X, Y, Z] -> continuum [X, Z, -Y].
+  rotation_map: xzy
+  rotation_signs: [1, 1, -1]
 
 initial_position:
   # capture_current preserves the current behavior: startup feedback becomes
@@ -19,8 +27,8 @@ initial_position:
 
 command:
   # Tip pose offset from the configured neutral tip pose, robot XYZ.
-  max_delta_m: [0.03, 0.01, 0.03]
-  max_speed_m_s: [0.05, 0.003, 0.05]
+  max_delta_m: [0.03, 0.03, 0.005]
+  max_speed_m_s: [0.05, 0.05, 0.0015]
 
   # Default Omega teleoperation uses the complete 5-DOF IK task:
   # translation plus tip-axis direction. rz is tool roll and remains disabled

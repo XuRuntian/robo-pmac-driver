@@ -28,7 +28,7 @@ def test_truncated_feedback_is_not_decoded_as_a_position():
         client.read_int32_array(10, 5)
 
 
-@pytest.mark.parametrize('output,error,exit_code', [('ERR003: bad command', '', 0), ('', 'failure', 0), ('', '', 1)])
+@pytest.mark.parametrize('output,error,exit_code', [('ERR003: bad command', '', 0), ('', 'failure', 0)])
 def test_ssh_errors_abort_remaining_boot_commands(monkeypatch, output, error, exit_code):
     events = []
     class SSH:
@@ -47,6 +47,23 @@ def test_ssh_errors_abort_remaining_boot_commands(monkeypatch, output, error, ex
         manager.send_gpascii_commands([('first', '&1A'), ('must not run', '#1..5j/')], delay=0)
     assert len(events) == 2
     assert events[-1] == 'close'
+
+
+def test_gpascii_normal_piped_eof_exit_code_is_accepted(monkeypatch):
+    class SSH:
+        def set_missing_host_key_policy(self, policy): pass
+        def connect(self, **kwargs): pass
+        def close(self): pass
+        def exec_command(self, command, **kwargs):
+            return None, SimpleNamespace(
+                read=lambda: b'OK',
+                channel=SimpleNamespace(recv_exit_status=lambda: 1),
+            ), SimpleNamespace(read=lambda: b'')
+
+    monkeypatch.setattr(ssh_manager.paramiko, 'SSHClient', SSH)
+    ssh_manager.PMACHardwareManager('unused', 'unused', 'unused').send_gpascii_commands(
+        [('normal', '&1A')], delay=0,
+    )
 
 
 def test_ssh_connection_failure_is_propagated(monkeypatch):

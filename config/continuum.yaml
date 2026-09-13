@@ -8,7 +8,8 @@ geometry:
   theta_c_max_rad: 1.5707963267948966
   d_min_m: 0.0
   d_max_m: 0.255
-  base_offset_m: [0.0, 0.4402, 0.207]
+  # Robot frame: +X right, +Y down, +Z forward/insertion.
+  base_offset_m: [0.0, -0.207, 0.4402]
   use_sheath: false
 
 ik:
