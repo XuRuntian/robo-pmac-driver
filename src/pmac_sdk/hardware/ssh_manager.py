@@ -1,66 +1,80 @@
-import paramiko
+import re
+import shlex
 import time
 
+import paramiko
+
+
 class PMACHardwareManager:
-    """管理 PMAC 底层系统级操作 (上下电、PLC启停)"""
+    """PMAC lifecycle commands; a failed command must stop the boot sequence."""
+
     def __init__(self, ip, user, password):
         self.ip = ip
         self.user = user
         self.password = password
 
-    def send_gpascii_commands(self, commands: list, delay=0.5):
+    def send_gpascii_commands(self, commands: list, delay=0.05):
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
-            ssh.connect(hostname=self.ip, port=22, username=self.user, password=self.password, timeout=10)
-            print("🟢 SSH 连接成功。")
-            
-            for desc, cmd in commands:
-                print(desc)
-                stdin, stdout, stderr = ssh.exec_command(f"echo '{cmd}' | gpascii -2")
-                
-                # 【关键还原】：物理阻塞，确保 PMAC 消化完毕
-                output = stdout.read().decode().strip()
-                error = stderr.read().decode().strip()
-                
-                if error:
-                    print(f"❌ 指令 [{cmd}] 执行出错: {error}")
-                else:
-                    print(f"✅ 响应: {output}")
-                
-                time.sleep(delay)
-            print("✨ 硬件序列执行完毕")
-        except Exception as e:
-            print(f"❌ 初始化严重错误: {e}")
+            ssh.connect(
+                hostname=self.ip, port=22, username=self.user, password=self.password,
+                timeout=5, banner_timeout=5, auth_timeout=5,
+            )
+            for description, command in commands:
+                _, stdout, stderr = ssh.exec_command(
+                    "printf '%s\\n' " + shlex.quote(command) + " | gpascii -2",
+                    timeout=5,
+                )
+                output = stdout.read().decode(errors="replace").strip()
+                error = stderr.read().decode(errors="replace").strip()
+                exit_code = stdout.channel.recv_exit_status()
+                # gpascii returns exit code 1 on normal EOF after piped stdin.
+                # Therefore exit_code == 1 is not a PMAC command failure.
+                pmac_error = re.search(
+                    r"(?:\bERR\d*\b|\berror\s*(?:#\d+)?\b|ILLEGAL\s+CMD)",
+                    output,
+                    re.I,
+                )
+
+                if error or pmac_error or exit_code not in (0, 1):
+                    raise RuntimeError(
+                        f"PMAC command failed ({description}): {command}; "
+                        f"exit={exit_code}, stdout={output!r}, stderr={error!r}"
+                    )
+                if delay:
+                    time.sleep(delay)
         finally:
             ssh.close()
-            
-    def init_motors(self):
-        print(f"🔌 [系统初始化] 正在通过 SSH 唤醒 PMAC ({self.ip})...")
-        self.send_gpascii_commands([
-            ("🛑 正在停用 PLC 2 和 PLC 3...", "disable plc 2,3"),
-            ("⚡ 正在执行电机上电 (#1..5k)...", "#1..5j/"),
-            ("🔄 正在重新启用 PLC 2 和 PLC 3...", "enable plc 2,3")
-        ])
-    def prepare_motors(self):
-        print(f"🔌 [阶段1] 电机上电准备")
-        self.send_gpascii_commands([
-            ("🛑 正在停用 PLC 2 和 PLC 3...", "disable plc 2,3"),
-            ("🧹 清除坐标系错误状态...", "&1A"), 
-            ("电机清除错误", "#1..5k/"),
-            ("⚡ 正在执行电机上电 (#1..5j/)...", "#1..5j/")
-        ], delay=0.5)
 
     def reset_with_plc4(self):
-        print("[Stage 1] Triggering PMAC SystemInit.Reset through PLC 4")
-        self.send_gpascii_commands([
-            ("Enable one-shot reset PLC 4", "enable plc 4"),
-        ], delay=2.0)
+        # Completion is acknowledged through register 216, never a fixed sleep.
+        self.send_gpascii_commands([("Reset PMAC through PLC 4", "enable plc 4")], delay=0)
+
+    def init_motors(self):
+        self.reset_with_plc4()
+
+    def prepare_motors(self):
+        self.reset_with_plc4()
 
     def start_prog(self):
-        print(f"🚀 [阶段3] 启动多轴协同程序")
         self.send_gpascii_commands([
-            ("映射轴", "&1 #1->X #2->Y #3->Z #4->A #5->B"),
-            ("🏃 启动运动程序...", "&1 b1r"),       
-            ("🔄 正在重新启用 PLC 2 和 PLC 3...", "enable plc 2,3")
-        ], delay=0.5)
+            ("Map axes", "&1 #1->X #2->Y #3->Z #4->A #5->B"),
+            ("Start PVT program", "&1 b1r"),
+        ])
+
+    def stop_pvt(self):
+        # Abort also discards the coordinate system's already-planned motion.
+        # Freeze the producer before clearing the application ring buffer.
+        self.send_gpascii_commands([
+            ("Stop PVT reception", "disable plc 2"),
+            ("Abort coordinate system motion", "&1A"),
+            ("Mark PVT stopped", "PVT_Ready=0"),
+            ("Clear write index", "PVT_WriteIdx=0"),
+            ("Clear read index", "PVT_ReadIdx=0"),
+            ("Clear queue count", "PVT_Count=0"),
+            ("Clear stream watchdog", "PVT_HasData=0"),
+            *[("Clear PVT request", f"Sys.ModbusServerBuffer[{index}]=0")
+              for index in range(400, 404)],
+            ("Resume feedback", "enable plc 2"),
+        ])

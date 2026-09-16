@@ -82,7 +82,7 @@ def main():
             loop_start = time.perf_counter()
             
             # [步骤 A] 读取机械臂真实位置
-            current_pulses = robot.modbus.read_int32_array(address=10, count=5)
+            current_pulses = robot.read_positions()
             current_angles_deg = [(p - base_pulses[i]) / robot.config.pulses_per_degree for i, p in enumerate(current_pulses)]
             
             # [步骤 B] 读取主手状态并映射

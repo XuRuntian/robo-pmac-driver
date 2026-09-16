@@ -10,9 +10,11 @@ from pynput import keyboard
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from continuum_sdk.control.axis_mapper import ContinuumAxisMapper
+from continuum_sdk.control.cartesian_frame import apply_axis_transform
 from continuum_sdk.control.pvt_mapper import ContinuumPVTMapper
 from continuum_sdk.core.config_loader import load_continuum_config
 from continuum_sdk.core.factory import build_continuum_ik, build_tendon_mapper
+from continuum_sdk.core.interface_config import load_robot_interface_config
 from pmac_sdk.controller.robot_api import PMACRobotController
 from pmac_sdk.core.config_model import PMACConfig
 
@@ -119,12 +121,19 @@ class CartesianKeyboardPlanner:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Keyboard Cartesian teleoperation through continuum IK and PVT.")
     parser.add_argument("--config", default="config/continuum.yaml")
+    parser.add_argument("--interface-config", default="config/robot_interface.yaml")
     parser.add_argument("--pmac-ip", default="192.168.0.200")
     parser.add_argument("--duration", type=float, default=0.0, help="0 means run until Esc or Ctrl+C.")
     parser.add_argument("--speed", type=float, default=0.003, help="Cartesian keyboard speed in m/s.")
     parser.add_argument("--max-delta-x", type=float, default=0.01, help="X travel limit from neutral, in meters.")
-    parser.add_argument("--max-delta-y", type=float, default=0.0, help="Y travel limit from neutral, in meters.")
-    parser.add_argument("--max-delta-z", type=float, default=0.01, help="Z travel limit from neutral, in meters.")
+    parser.add_argument("--max-delta-y", type=float, default=0.01, help="Y/down travel limit from neutral, in meters.")
+    parser.add_argument("--max-delta-z", type=float, default=0.0, help="Z/insertion travel limit from neutral, in meters.")
+    parser.add_argument(
+        "--task-mode",
+        choices=("position", "pos-z"),
+        default="pos-z",
+        help="IK task for keyboard teleop. Command frame is +X right, +Y insertion, +Z up.",
+    )
     parser.add_argument(
         "--lock-linear-axis",
         action="store_true",
@@ -137,6 +146,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     continuum_cfg = load_continuum_config(args.config)
+    interface_cfg = load_robot_interface_config(args.interface_config)
     pmac_config = PMACConfig(ip=args.pmac_ip)
 
     ik = build_continuum_ik(continuum_cfg)
@@ -151,7 +161,8 @@ def main() -> None:
     update_hz = continuum_cfg.control.update_hz
     update_interval = 1.0 / update_hz
     move_time_ms = update_interval * 1000.0
-    center_p, _ = ik.fk_tip()
+    center_p, center_r = ik.fk_tip()
+    ik.task_mode = "pos_z" if args.task_mode == "pos-z" else "position"
 
     robot = PMACRobotController(pmac_config) if args.execute else None
     kbd = KeyboardDevice()
@@ -197,8 +208,16 @@ def main() -> None:
                 break
 
             keys = kbd.get_state()
-            p_goal = planner.solve(keys, update_interval)
-            command = pvt_mapper.build_command(p_goal)
+            planner_goal = planner.solve(keys, update_interval)
+            p_goal = center_p + apply_axis_transform(
+                planner_goal - center_p,
+                interface_cfg.frame.translation_map,
+                interface_cfg.frame.translation_signs,
+            )
+            command = pvt_mapper.build_command(
+                p_goal,
+                z_goal=center_r[:, 2] if args.task_mode == "pos-z" else None,
+            )
 
             if args.lock_linear_axis:
                 command.axis_targets[4] = 0.0

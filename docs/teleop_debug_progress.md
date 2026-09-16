@@ -1,6 +1,69 @@
 # Teleoperation Debug Progress
 
-Date: 2026-05-26
+Date: 2026-09-13
+
+## Handoff Update: Coordinate and Rotation Semantics
+
+The external keyboard/API frame is the world frame:
+
+```text
++X = right, +Y = forward/insertion, +Z = up
+```
+
+The continuum IK frame is:
+
+```text
++X = right, +Y = down, +Z = forward/insertion
+```
+
+The shared transform in the interface YAML files is:
+
+```text
+[x, y, z]       -> [x, -z, y]
+[rx, ry, rz]    -> [rx, -rz, ry]
+```
+
+The current mechanism supports world-frame `Rx` and `Rz`. World-frame `Ry`
+maps to continuum-frame `Rz` (tool-axis roll), which is disabled. The interface
+limits therefore use `[Rx, Ry, Rz] = [enabled, disabled, enabled]`.
+
+Keyboard pose controls in `apps/teleop_pvt_keyboard_pose.py` are:
+
+```text
+A/D = world X, Q/E = world Y, W/S = world Z
+U/J = world Rx, I/K = world Rz
+world Ry = disabled
+```
+
+Use the dedicated rotation test with `--axes rxrz`; do not use the old `rxry`
+test convention.
+
+The full offline chain is available in `apps/debug_full_chain.py`:
+
+```bash
+uv run python apps/debug_full_chain.py --dx 1
+uv run python apps/debug_full_chain.py --dy 1
+uv run python apps/debug_full_chain.py --dz 1
+uv run python apps/debug_full_chain.py --rx 2
+uv run python apps/debug_full_chain.py --rz 2
+```
+
+The logical-to-PMAC mapping remains `[alpha1, alpha2, alpha3, alpha4, d]` to
+physical axes `[2, 1, 3, 4, 5]` with signs `[+, -, -, -, +]`. The actuator
+parameters are synchronized with the hardware test: hole radius `0.00215 m`
+and spool diameter `0.012 m`.
+
+Validation completed on this handoff:
+
+```text
+robo-pmac-driver tests excluding the Omega hardware test: 72 passed
+tdrc_robot_system PMAC bridge tests: 4 passed
+debug_full_chain Rx/Rz dry-runs: passed
+```
+
+Physical PMAC motion has not been run after these changes. Start the driver
+with the selected interface config and `--execute` only after checking the
+dry-run pulse deltas and the emergency stop path.
 
 This file records the current teleoperation debugging state so a new Codex/chat window can resume quickly.
 
@@ -191,7 +254,9 @@ Do not judge final manipulator tip responsiveness yet. That has to wait until th
 
 ## Known Model Behavior
 
-The logical `d` coordinate maps to the physical linear axis, axis 5. In the current FK frame, `d` strongly affects world Y. Therefore:
+The logical `d` coordinate maps to the physical linear axis, axis 5. In the
+corrected FK frame, `d` strongly affects robot +Z (forward/insertion).
+Therefore:
 
 - Keyboard `Q/E` Y motion can drive axis 5.
 - Omega `scale-y` can drive axis 5.
@@ -217,7 +282,7 @@ Before continuing after a fatal error, reset PMAC state fully rather than only c
 Observed during Omega testing:
 
 ```bash
-python apps/test_omega_continuum_teleop.py --execute --duration 180 --scale-x 0.25 --scale-y 0.08 --scale-z 0.25 --max-delta-x 0.03 --max-delta-y 0.005 --max-delta-z 0.03
+python apps/test_omega_continuum_teleop.py --execute --duration 180 --scale-x 0.25 --scale-y -0.08 --scale-z 0.25 --omega-map zyx --max-delta-x 0.03 --max-delta-y 0.005 --max-delta-z 0.005
 ```
 
 If the Omega master is moved aggressively, physical axis 5 can enter amp fault. Restarting Python alone may still show amp fault because the drive/PMAC state is latched and old PVT/PLC state may remain active.
@@ -229,7 +294,8 @@ The likely cause is not `--max-delta-y` alone. `--max-delta-y` limits total Y tr
 - `--deadband`: ignore small Omega noise in robot-space meters.
 - `--smooth-alpha`: low-pass filter the Omega target.
 - `--max-speed-x/y/z`: Cartesian target slew-rate limits.
-- A physical pulse-step clamp for axis 5 derived from `--max-speed-y`.
+- A physical pulse-step clamp for axis 5 derived from `--max-speed-z` (the
+  corrected robot +Z insertion axis).
 - `--feedback-hz` and `--log-csv`: sample PMAC position feedback and log target/actual/error pulses.
 
 After an amp fault, recover PMAC before rerunning teleop. The intended manual/gpascii recovery shape is:
@@ -260,13 +326,13 @@ If `#1..5j/` cannot clear the drive fault, clear/power-cycle the axis-5 amplifie
 Recommended next Omega retest after recovery:
 
 ```bash
-python apps/test_omega_continuum_teleop.py --execute --duration 120 --scale-x 0.25 --scale-y 0.08 --scale-z 0.25 --max-delta-x 0.03 --max-delta-y 0.005 --max-delta-z 0.03 --max-speed-x 0.02 --max-speed-y 0.0015 --max-speed-z 0.02 --deadband 0.0003 --smooth-alpha 0.25
+python apps/test_omega_continuum_teleop.py --execute --duration 120 --scale-x 0.25 --scale-y -0.08 --scale-z 0.25 --omega-map zyx --max-delta-x 0.03 --max-delta-y 0.005 --max-delta-z 0.005 --max-speed-x 0.02 --max-speed-y 0.02 --max-speed-z 0.0015 --deadband 0.0003 --smooth-alpha 0.25
 ```
 
 For tracking analysis, add CSV logging:
 
 ```bash
-python apps/test_omega_continuum_teleop.py --execute --duration 60 --scale-x 0.25 --scale-y 0.08 --scale-z 0.25 --max-delta-x 0.03 --max-delta-y 0.01 --max-delta-z 0.03 --max-speed-x 0.02 --max-speed-y 0.0015 --max-speed-z 0.02 --deadband 0.0003 --smooth-alpha 0.25 --feedback-hz 10 --log-csv logs/omega_axis5_tracking.csv
+python apps/test_omega_continuum_teleop.py --execute --duration 60 --scale-x 0.25 --scale-y -0.08 --scale-z 0.25 --omega-map zyx --max-delta-x 0.03 --max-delta-y 0.01 --max-delta-z 0.005 --max-speed-x 0.02 --max-speed-y 0.02 --max-speed-z 0.0015 --deadband 0.0003 --smooth-alpha 0.25 --feedback-hz 10 --log-csv logs/omega_axis5_tracking.csv
 ```
 
 ## Notes For The Next Window

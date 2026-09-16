@@ -17,6 +17,7 @@ def build_continuum_ik(cfg: ContinuumConfig) -> DLSIK:
         theta_c_max=cfg.geometry.theta_c_max_rad,
         d_min=cfg.geometry.d_min_m,
         d_max=cfg.geometry.d_max_m,
+        use_sheath=cfg.geometry.use_sheath,
         base_offset=cfg.geometry.base_offset_m,
     )
 
@@ -26,6 +27,14 @@ def build_continuum_ik(cfg: ContinuumConfig) -> DLSIK:
     ik.pos_tol = cfg.ik.pos_tol_m
     ik.dir_tol = cfg.ik.dir_tol
     ik.ori_tol = cfg.ik.ori_tol_rad
+    ik.eps_j = cfg.ik.jacobian_eps
+    ik.w_pos = cfg.ik.position_weight
+    ik.w_dir = cfg.ik.direction_weight
+    ik.w_ori = cfg.ik.orientation_weight
+    ik.line_search_steps = cfg.ik.line_search_steps
+    ik.gradient_fallback_step = cfg.ik.gradient_fallback_step
+    ik.step_limit_enabled = cfg.ik.step_limit_enabled
+    ik.max_du = cfg.ik.max_delta_u
     return ik
 
 

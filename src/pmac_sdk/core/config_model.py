@@ -10,6 +10,10 @@ class PMACConfig:
     slave_id: int = 1
     ssh_user: str = 'root'
     ssh_pass: str = 'deltatau'
+    modbus_timeout_s: float = 0.1
+    handshake_timeout_s: float = 0.2
+    startup_timeout_s: float = 2.0
+    poll_interval_s: float = 0.001
     
     # --- 物理电机参数 ---
     # 旋转轴 (1-4轴) 参数

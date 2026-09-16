@@ -129,7 +129,7 @@ def main():
         
         while True:
             loop_start = time.perf_counter() # 使用高精度时钟
-            current_pulses = robot.modbus.read_int32_array(address=10, count=5)
+            current_pulses = robot.read_positions()
             current_angles_deg = [(p - base_pulses[i]) / robot.config.pulses_per_degree for i, p in enumerate(current_pulses)]
             # 1. 捕捉输入与计算目标
             keys = kbd.get_state()

@@ -1,9 +1,25 @@
 # Framework-independent robot interface contract used before the LeRobot adapter.
 control_hz: 50
+omega_map: xzy
 
-# Robot XYZ sources from Omega axes:
-# robot X <- Omega Z, robot Y/linear <- Omega X, robot Z <- Omega Y.
-omega_map: zxy
+# External command frame: +X right, +Y forward/insertion, +Z up.
+# Internal IK frame remains +X right, +Y down, +Z forward/insertion.
+# External standard right-handed XYZ command -> existing internal IK frame.
+# Internal frame remains +X right, +Y down, +Z insertion.
+
+# world = [X, Y, Z]
+
+# zxy
+#  ↓
+# local = [Z, X, Y]
+
+frame:
+  translation_map: zxy
+  translation_signs: [-1, 1, 1] 
+  # Angular vectors use the same basis change as XYZ vectors:
+  # world [X, Y, Z] -> continuum [X, -Z, Y].
+  rotation_map: zxy
+  rotation_signs: [-1, 1, 1]
 
 initial_position:
   # capture_current preserves the current behavior: startup feedback becomes
@@ -18,16 +34,18 @@ initial_position:
   tolerance_pulses: null
 
 command:
-  # Tip translation offset from the configured neutral tip pose, robot XYZ.
-  max_delta_m: [0.03, 0.01, 0.03]
-  max_speed_m_s: [0.08, 0.003, 0.08]
+  # Tip pose offset from the configured neutral tip pose, robot XYZ.
+  max_delta_m: [0.06, 0.06, 0.06]
+  max_speed_m_s: [0.01, 0.01, 0.01]
 
-  # Rotation uses a rotation vector [rx, ry, rz] in radians.
-  # The interface reserves these fields, but the current tested controller is
-  # position-only and must reject non-zero rotation commands.
-  orientation_enabled: false
-  max_rotation_delta_rad: [0.0, 0.0, 0.0]
-  max_angular_speed_rad_s: [0.0, 0.0, 0.0]
+  # Default teleoperation uses the complete 5-DOF IK task: translation plus
+  # tip-axis direction. In the external/world frame, Ry maps to continuum Rz
+  # (tool roll) and remains disabled.
+  orientation_enabled: true
+  # External/world rotations: Rx and Rz are enabled; Ry maps to the
+  # continuum tool-axis roll and is disabled.
+  max_rotation_delta_rad: [1.0, 0.0, 1.0]
+  max_angular_speed_rad_s: [0.45, 0.0, 0.45]
 
   deadband_m: 0.0003
-  smooth_alpha: 0.8
+  smooth_alpha: 0.5

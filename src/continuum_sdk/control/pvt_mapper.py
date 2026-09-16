@@ -7,11 +7,14 @@ import numpy as np
 from continuum_sdk.control.axis_mapper import ContinuumAxisMapper
 from continuum_sdk.control.tendon_mapper import ContinuumTendonMapper
 from continuum_sdk.kinematics.dls_ik import DLSIK, IKResult
+from continuum_sdk.kinematics.joint_motor_model import MotorAngles
 
 
 @dataclass(frozen=True)
 class ContinuumPVTCommand:
     p_goal: np.ndarray
+    r_goal: np.ndarray | None
+    z_goal: np.ndarray | None
     ik_result: IKResult
     axis_targets: list[float]
     target_pulses: list[int]
@@ -38,9 +41,27 @@ class ContinuumPVTMapper:
         self.max_inner_steps = int(max_inner_steps)
         self._prev_axis_targets: list[float] | None = None
 
-    def build_command(self, p_goal: np.ndarray) -> ContinuumPVTCommand:
+    def commit_pulses(self, target_pulses: list[int]) -> None:
+        """Warm-start from the accepted command after physical-axis clipping."""
+        logical = self.axis_mapper.pulses_to_logical(self.base_pulses, target_pulses)
+        joint = self.tendon_mapper.model.motor_angles_to_joint(MotorAngles(*logical[:4]))
+        self.ik.reset(np.array([
+            logical[4], joint.theta_a, joint.phi_a, joint.theta_c, joint.phi_c,
+        ]))
+        self._prev_axis_targets = logical
+
+    def build_command(
+        self,
+        p_goal: np.ndarray,
+        r_goal: np.ndarray | None = None,
+        z_goal: np.ndarray | None = None,
+    ) -> ContinuumPVTCommand:
+        normalized_r_goal = None if r_goal is None else np.asarray(r_goal, dtype=float)
+        normalized_z_goal = None if z_goal is None else np.asarray(z_goal, dtype=float)
         result = self.ik.solve(
             p_goal=np.asarray(p_goal, dtype=float),
+            r_goal=normalized_r_goal,
+            z_goal=normalized_z_goal,
             max_steps=self.max_inner_steps,
         )
         axis_targets = self.tendon_mapper.to_axis_targets(result.u)
@@ -53,6 +74,8 @@ class ContinuumPVTMapper:
 
         return ContinuumPVTCommand(
             p_goal=np.asarray(p_goal, dtype=float),
+            r_goal=normalized_r_goal,
+            z_goal=normalized_z_goal,
             ik_result=result,
             axis_targets=axis_targets,
             target_pulses=target_pulses,

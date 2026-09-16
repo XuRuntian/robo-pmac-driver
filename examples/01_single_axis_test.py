@@ -78,7 +78,7 @@ def main():
     finally:
         # 停止并清理连接
         try:
-            current_pos = robot.modbus.read_int32_array(address=10, count=5)
+            current_pos = robot.read_positions()
             print(f"📊 最终停止时五轴位置: {current_pos}")
         except:
             pass

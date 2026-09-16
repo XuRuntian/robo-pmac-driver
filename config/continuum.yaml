@@ -8,19 +8,33 @@ geometry:
   theta_c_max_rad: 1.5707963267948966
   d_min_m: 0.0
   d_max_m: 0.255
-  base_offset_m: [0.0, 0.4402, 0.207]
+  # Robot frame: +X right, +Y down, +Z forward/insertion.
+  base_offset_m: [0.0, -0.207, 0.4402]
+  use_sheath: false
 
 ik:
-  task_mode: position
+  task_mode: pos_z
   lambda_damping: 0.008
   alpha: 1.0
   pos_tol_m: 0.0002
   dir_tol: 0.001
   ori_tol_rad: 0.0005
-  max_inner_steps: 5
+  max_inner_steps: 8
+  jacobian_eps: [0.001, 0.005, 0.005, 0.005, 0.005]
+  position_weight: 1.0
+  direction_weight: 0.8
+  orientation_weight: 0.1
+  line_search_steps: 4
+  gradient_fallback_step: 0.01
+  # Matches the newer MuJoCo teleop IK: no hard per-step IK clipping.
+  # Cartesian speed limits are still enforced by robot_interface.yaml.
+  step_limit_enabled: false
+  # Conservative fallback if step_limit_enabled is set true.
+  max_delta_u: [0.0003, 0.0025, 0.0025, 0.0025, 0.0025]
 
 actuation:
-  hole_radius_m: 0.003
+  # Matched to tdrc_robot_system/scripts/hardware/interactive_pmac_joint_test.py.
+  hole_radius_m: 0.00215
   spool_diameter_m: 0.012
 
 control:
