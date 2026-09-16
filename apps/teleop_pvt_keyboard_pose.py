@@ -144,21 +144,22 @@ class PosePlanner:
     def update(self, keys: set[str], dt_s: float) -> list[float]:
         direction = [0.0] * 5
         # World-frame commissioning layout:
-        # a/d = Z, q/e = Y (insertion), w/s = X,
-        # u/j = RX, i/k = RZ. World Ry is unavailable because it maps to
+        # a/d = X, q/e = Y (insertion), w/s = Z,
+        # u/j = RX, i/k = RZ.
+        # World Ry is unavailable because it maps to
         # continuum-frame Rz, the disabled tool-roll DOF.
         if "a" in keys:
-            direction[2] -= 1.0
+            direction[0] -= 1.0
         if "d" in keys:
-            direction[2] += 1.0
+            direction[0] += 1.0
         if "q" in keys:
             direction[1] += 1.0
         if "e" in keys:
             direction[1] -= 1.0
         if "w" in keys:
-            direction[0] += 1.0
+            direction[2] += 1.0
         if "s" in keys:
-            direction[0] -= 1.0
+            direction[2] -= 1.0
         if "u" in keys:
             direction[3] += 1.0
         if "j" in keys:

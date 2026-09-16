@@ -6,13 +6,20 @@ omega_map: xzy
 # Internal IK frame remains +X right, +Y down, +Z forward/insertion.
 # External standard right-handed XYZ command -> existing internal IK frame.
 # Internal frame remains +X right, +Y down, +Z insertion.
+
+# world = [X, Y, Z]
+
+# zxy
+#  ↓
+# local = [Z, X, Y]
+
 frame:
-  translation_map: xzy
-  translation_signs: [1, -1, 1]
+  translation_map: zxy
+  translation_signs: [-1, 1, 1] 
   # Angular vectors use the same basis change as XYZ vectors:
   # world [X, Y, Z] -> continuum [X, -Z, Y].
-  rotation_map: xzy
-  rotation_signs: [1, -1, 1]
+  rotation_map: zxy
+  rotation_signs: [-1, 1, 1]
 
 initial_position:
   # capture_current preserves the current behavior: startup feedback becomes
@@ -28,8 +35,8 @@ initial_position:
 
 command:
   # Tip pose offset from the configured neutral tip pose, robot XYZ.
-  max_delta_m: [0.03, 0.03, 0.005]
-  max_speed_m_s: [0.05, 0.05, 0.0015]
+  max_delta_m: [0.06, 0.06, 0.06]
+  max_speed_m_s: [0.01, 0.01, 0.01]
 
   # Default teleoperation uses the complete 5-DOF IK task: translation plus
   # tip-axis direction. In the external/world frame, Ry maps to continuum Rz
@@ -37,7 +44,7 @@ command:
   orientation_enabled: true
   # External/world rotations: Rx and Rz are enabled; Ry maps to the
   # continuum tool-axis roll and is disabled.
-  max_rotation_delta_rad: [0.45, 0.0, 0.45]
+  max_rotation_delta_rad: [1.0, 0.0, 1.0]
   max_angular_speed_rad_s: [0.45, 0.0, 0.45]
 
   deadband_m: 0.0003
