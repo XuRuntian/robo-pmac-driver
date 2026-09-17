@@ -35,7 +35,7 @@ initial_position:
 
 command:
   # Tip pose offset from the configured neutral tip pose, robot XYZ.
-  max_delta_m: [0.06, 0.06, 0.06]
+  max_delta_m: [0.08, 0.05, 0.05]
   max_speed_m_s: [0.01, 0.01, 0.01]
 
   # Default teleoperation uses the complete 5-DOF IK task: translation plus
@@ -44,7 +44,7 @@ command:
   orientation_enabled: true
   # External/world rotations: Rx and Rz are enabled; Ry maps to the
   # continuum tool-axis roll and is disabled.
-  max_rotation_delta_rad: [1.0, 0.0, 1.0]
+  max_rotation_delta_rad: [3.0, 0.0, 3.0]
   max_angular_speed_rad_s: [0.45, 0.0, 0.45]
 
   deadband_m: 0.0003
