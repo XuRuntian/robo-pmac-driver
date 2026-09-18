@@ -2,11 +2,11 @@
 # `map: zxy` means WORLD X <- raw Z, WORLD Y <- raw X, WORLD Z <- raw Y.
 # Signs are applied after reordering, on WORLD X/Y/Z. Gains are per WORLD axis.
 translation:
-  map: zyx
+  map: yxz
   signs: [1, -1, 1]
   gain: [0.5, 0.08, 0.25]
 
 rotation:
-  map: zxy
+  map: yxz
   signs: [-1, 1, 1]
   gain: [0.3, 0.0, 0.3]
