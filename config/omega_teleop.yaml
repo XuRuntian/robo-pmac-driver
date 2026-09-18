@@ -4,9 +4,13 @@
 translation:
   map: yxz
   signs: [1, -1, 1]
-  gain: [0.5, 0.08, 0.25]
+  gain: [0.5, 0.5, 0.5]
 
 rotation:
-  map: yxz
+  map: zyx
   signs: [-1, 1, 1]
   gain: [0.3, 0.0, 0.3]
+
+# rx->rz
+# ry -> 空
+# rz ->rx
