@@ -1,5 +1,14 @@
 # Teleoperation Debug Progress
 
+> Historical commissioning notes: the early direct-PMAC teleoperation scripts
+> referenced later in this document have been removed. Use
+> `apps/continuum_driver_server.py` with the LeRobot robot/teleoperator plugins
+> for the main path, `apps/teleop_pvt_keyboard_pose.py` for keyboard/ZMQ
+> testing, `apps/test_omega_continuum_teleop.py` for the standalone Omega
+> hardware test, and `apps/debug_full_chain.py` for offline validation. Old
+> command lines below are retained only as historical records and are not
+> current entry points.
+
 Date: 2026-09-13
 
 ## Handoff Update: Coordinate and Rotation Semantics
