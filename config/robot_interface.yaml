@@ -1,6 +1,5 @@
 # Framework-independent robot interface contract used before the LeRobot adapter.
 control_hz: 50
-omega_map: xzy
 
 # External command frame: +X right, +Y forward/insertion, +Z up.
 # Internal IK frame remains +X right, +Y down, +Z forward/insertion.

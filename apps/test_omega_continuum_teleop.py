@@ -12,6 +12,7 @@ from continuum_sdk.control.pvt_mapper import ContinuumPVTMapper
 from continuum_sdk.core.config_loader import load_continuum_config
 from continuum_sdk.core.factory import build_continuum_ik, build_tendon_mapper
 from continuum_sdk.core.interface_config import load_robot_interface_config
+from continuum_sdk.core.omega_config import OmegaAxisConfig, load_omega_teleop_config
 from omega_sdk.haptic_device import HapticState, OmegaDevice
 from pmac_sdk.controller.robot_api import PMACRobotController
 from pmac_sdk.core.config_model import PMACConfig
@@ -28,17 +29,14 @@ class OmegaCartesianMapper:
         max_speed_xyz: tuple[float, float, float],
         deadband_m: float,
         smooth_alpha: float,
-        omega_map: str,
+        omega_config: OmegaAxisConfig,
     ) -> None:
         self.center_p = np.asarray(center_p, dtype=float)
-        self.scale = np.asarray(scale_xyz, dtype=float)
+        self.omega_config = omega_config
         self.max_delta = np.asarray(max_delta_xyz, dtype=float)
         self.max_speed = np.asarray(max_speed_xyz, dtype=float)
         self.deadband_m = float(deadband_m)
         self.smooth_alpha = float(np.clip(smooth_alpha, 0.0, 1.0))
-        self.omega_map = omega_map.lower()
-        axis_index = {"x": 0, "y": 1, "z": 2}
-        self._omega_to_robot = np.asarray([axis_index[axis] for axis in self.omega_map], dtype=int)
         self._omega_zero: np.ndarray | None = None
         self._delta = np.zeros(3, dtype=float)
 
@@ -51,7 +49,8 @@ class OmegaCartesianMapper:
             self.calibrate_zero(haptic_state)
 
         omega_delta = np.asarray(haptic_state.pos, dtype=float) - self._omega_zero
-        target_delta = omega_delta[self._omega_to_robot] * self.scale
+        target_delta = apply_axis_transform(omega_delta, self.omega_config.map, self.omega_config.signs)
+        target_delta *= np.asarray(self.omega_config.gain, dtype=float)
         if self.deadband_m > 0.0:
             target_delta[np.abs(target_delta) < self.deadband_m] = 0.0
         target_delta = np.clip(target_delta, -self.max_delta, self.max_delta)
@@ -69,20 +68,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Omega master teleoperation test for continuum robot.")
     parser.add_argument("--config", default="config/continuum.yaml")
     parser.add_argument("--interface-config", default="config/robot_interface.yaml")
+    parser.add_argument("--omega-config", default="config/omega_teleop.yaml")
     parser.add_argument("--pmac-ip", default="192.168.0.200")
-    parser.add_argument("--scale-x", type=float, default=0.6, help="Robot meters per Omega meter on X.")
-    parser.add_argument("--scale-y", type=float, default=-0.6, help="Robot meters per Omega meter on corrected +Y (down).")
-    parser.add_argument("--scale-z", type=float, default=0.6, help="Robot meters per Omega meter on corrected +Z/insertion.")
-    parser.add_argument(
-        "--omega-map",
-        default="zyx",
-        choices=("xyz", "xzy", "yxz", "yzx", "zxy", "zyx"),
-        help=(
-            "Source Omega axes for robot XYZ. Default zyx means "
-            "robot X<-Omega Z, robot Y<-Omega Y (sign-inverted), robot Z/insertion<-Omega X. "
-            "This is independent of the robot interface frame mapping."
-        ),
-    )
     parser.add_argument("--max-delta-x", type=float, default=0.01, help="Clamp robot X offset from neutral, in meters.")
     parser.add_argument("--max-delta-y", type=float, default=0.01, help="Clamp robot Y/down offset from neutral, in meters.")
     parser.add_argument("--max-delta-z", type=float, default=0.01, help="Clamp robot Z/insertion offset from neutral, in meters.")
@@ -118,6 +105,9 @@ def main() -> None:
     args = parse_args()
     continuum_cfg = load_continuum_config(args.config)
     interface_cfg = load_robot_interface_config(args.interface_config)
+    omega_cfg = load_omega_teleop_config(args.omega_config)
+    print(f"Omega → WORLD: translation map={omega_cfg.translation.map} signs={list(omega_cfg.translation.signs)} gain={list(omega_cfg.translation.gain)}")
+    print(f"WORLD → IK: translation map={interface_cfg.frame.translation_map} signs={list(interface_cfg.frame.translation_signs)}")
     pmac_config = PMACConfig(ip=args.pmac_ip)
 
     ik = build_continuum_ik(continuum_cfg)
@@ -168,12 +158,12 @@ def main() -> None:
         )
         omega_mapper = OmegaCartesianMapper(
             center_p=center_p,
-            scale_xyz=(args.scale_x, args.scale_y, args.scale_z),
+            scale_xyz=(1.0, 1.0, 1.0),
             max_delta_xyz=(args.max_delta_x, args.max_delta_y, args.max_delta_z),
             max_speed_xyz=(args.max_speed_x, args.max_speed_y, args.max_speed_z),
             deadband_m=args.deadband,
             smooth_alpha=args.smooth_alpha,
-            omega_map=args.omega_map,
+            omega_config=omega_cfg.translation,
         )
         omega_mapper.calibrate_zero(omega.get_state())
         linear_physical_idx = axis_mapper.axis_order[4]
@@ -241,8 +231,8 @@ def main() -> None:
         next_feedback_call = start_time
         print("Omega teleop started. Hold the master at the neutral pose during startup.")
         print(
-            f"Omega map robot XYZ <- Omega {args.omega_map.upper()} | "
-            f"Scale XYZ: {[args.scale_x, args.scale_y, args.scale_z]} | "
+                f"Omega WORLD map={omega_cfg.translation.map} signs={list(omega_cfg.translation.signs)} | "
+                f"Gain XYZ: {list(omega_cfg.translation.gain)} | "
                     f"Max delta XYZ: {[args.max_delta_x, args.max_delta_y, args.max_delta_z]} m | "
                     f"Max speed XYZ: {[args.max_speed_x, args.max_speed_y, args.max_speed_z]} m/s | "
             f"deadband={args.deadband} m | smooth-alpha={args.smooth_alpha} | "

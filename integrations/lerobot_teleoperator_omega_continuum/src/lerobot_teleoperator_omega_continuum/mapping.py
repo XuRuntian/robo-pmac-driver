@@ -2,6 +2,14 @@ from __future__ import annotations
 
 import numpy as np
 
+from .omega_config import OmegaAxisConfig
+
+
+def _apply_axis_transform(values: np.ndarray, axis_map: str, signs: tuple[float, float, float]) -> np.ndarray:
+    """Reorder raw XYZ into output XYZ, then apply output-axis signs."""
+    indices = np.asarray(["xyz".index(axis) for axis in axis_map], dtype=int)
+    return np.asarray(values, dtype=float)[indices] * np.asarray(signs, dtype=float)
+
 
 ACTION_FIELDS = (
     "tip_delta_x",
@@ -33,38 +41,40 @@ class OmegaContinuumMapper:
     def __init__(
         self,
         *,
-        scale_xyz: tuple[float, float, float],
         max_delta_xyz: tuple[float, float, float],
         deadband_m: float,
-        omega_map: str,
+        scale_xyz: tuple[float, float, float] | None = None,
+        omega_map: str | None = None,
         rotation_map: str | None = None,
+        translation_config: OmegaAxisConfig | None = None,
+        rotation_config: OmegaAxisConfig | None = None,
         position_offset_xyz: tuple[float, float, float] = (0.0, 0.0, 0.0),
         rotation_scale_xyz: tuple[float, float, float] = (1.0, 1.0, 1.0),
         max_rotation_xyz: tuple[float, float, float] = (0.15, 0.15, 0.0),
         rotation_deadband_rad: float = 0.005,
     ) -> None:
-        axis_index = {"x": 0, "y": 1, "z": 2}
-        omega_map = omega_map.lower()
-        if sorted(omega_map) != ["x", "y", "z"]:
-            raise ValueError("omega_map must be a permutation of xyz.")
-        rotation_map = omega_map if rotation_map is None else rotation_map.lower()
-        if sorted(rotation_map) != ["x", "y", "z"]:
-            raise ValueError("rotation_map must be a permutation of xyz.")
+        # The adapter emits WORLD XYZ. Device mapping is performed exactly once here.
+        if translation_config is None:
+            if omega_map is None or scale_xyz is None:
+                raise ValueError("translation_config (or legacy omega_map + scale_xyz) is required")
+            translation_config = OmegaAxisConfig(omega_map, (1.0, 1.0, 1.0), tuple(scale_xyz))
+        if rotation_config is None:
+            rotation_config = OmegaAxisConfig(
+                rotation_map or translation_config.map,
+                (1.0, 1.0, 1.0),
+                tuple(rotation_scale_xyz),
+            )
 
-        self.scale = np.asarray(scale_xyz, dtype=float)
+        self.translation_config = translation_config
+        self.rotation_config = rotation_config
         self.max_delta = np.asarray(max_delta_xyz, dtype=float)
         self.position_offset = np.asarray(position_offset_xyz, dtype=float)
         if self.position_offset.shape != (3,) or not np.all(np.isfinite(self.position_offset)):
             raise ValueError("position_offset_xyz must contain three finite values.")
         self.deadband_m = float(deadband_m)
-        self.rotation_scale = np.asarray(rotation_scale_xyz, dtype=float)
+        self.rotation_scale = np.asarray(rotation_config.gain, dtype=float)
         self.max_rotation = np.asarray(max_rotation_xyz, dtype=float)
         self.rotation_deadband_rad = float(rotation_deadband_rad)
-        self._omega_to_robot = np.asarray([axis_index[axis] for axis in omega_map], dtype=int)
-        self._omega_rotation_to_robot = np.asarray(
-            [axis_index[axis] for axis in rotation_map],
-            dtype=int,
-        )
         self._zero: np.ndarray | None = None
         self._zero_orientation: np.ndarray | None = None
 
@@ -133,13 +143,21 @@ class OmegaContinuumMapper:
         orientation = self._validate_orientation(orientation)
 
         control_position = self.control_position(position, orientation)
-        delta = (control_position - self._zero)[self._omega_to_robot] * self.scale
+        delta = _apply_axis_transform(
+            control_position - self._zero,
+            self.translation_config.map,
+            self.translation_config.signs,
+        ) * np.asarray(self.translation_config.gain, dtype=float)
         if self.deadband_m > 0.0:
             delta[np.abs(delta) < self.deadband_m] = 0.0
         delta = np.clip(delta, -self.max_delta, self.max_delta)
 
         omega_rotation = self.omega_rotation_delta(orientation)
-        robot_rotation = omega_rotation[self._omega_rotation_to_robot] * self.rotation_scale
+        robot_rotation = _apply_axis_transform(
+            omega_rotation,
+            self.rotation_config.map,
+            self.rotation_config.signs,
+        ) * self.rotation_scale
         if np.linalg.norm(robot_rotation) < self.rotation_deadband_rad:
             robot_rotation.fill(0.0)
         robot_rotation = np.clip(robot_rotation, -self.max_rotation, self.max_rotation)

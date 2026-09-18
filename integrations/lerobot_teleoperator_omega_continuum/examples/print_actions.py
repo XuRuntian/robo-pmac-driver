@@ -13,14 +13,15 @@ from lerobot_teleoperator_omega_continuum.mapping import _matrix_to_rotvec
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Print raw Omega motion and mapped continuum action.")
-    parser.add_argument("--omega-map", default="zxy")
-    parser.add_argument("--scale-x", type=float, default=0.5)
-    parser.add_argument("--scale-y", type=float, default=0.08)
-    parser.add_argument("--scale-z", type=float, default=0.25)
-    parser.add_argument("--rotation-map", default="zxy")
-    parser.add_argument("--rotation-scale-x", type=float, default=-0.3)
-    parser.add_argument("--rotation-scale-y", type=float, default=0.3)
-    parser.add_argument("--rotation-scale-z", type=float, default=0.0)
+    parser.add_argument("--omega-config", default="config/omega_teleop.yaml")
+    parser.add_argument("--omega-map", default=None, help="Deprecated explicit override")
+    parser.add_argument("--scale-x", type=float, default=None, help="Deprecated explicit override")
+    parser.add_argument("--scale-y", type=float, default=None, help="Deprecated explicit override")
+    parser.add_argument("--scale-z", type=float, default=None, help="Deprecated explicit override")
+    parser.add_argument("--rotation-map", default=None, help="Deprecated explicit override")
+    parser.add_argument("--rotation-scale-x", type=float, default=None, help="Deprecated explicit override")
+    parser.add_argument("--rotation-scale-y", type=float, default=None, help="Deprecated explicit override")
+    parser.add_argument("--rotation-scale-z", type=float, default=None, help="Deprecated explicit override")
     parser.add_argument("--position-offset-x", type=float, default=0.0)
     parser.add_argument("--position-offset-y", type=float, default=0.0)
     parser.add_argument("--position-offset-z", type=float, default=0.0)
@@ -42,6 +43,7 @@ def main() -> None:
     omega = OmegaContinuum(
         OmegaContinuumConfig(
             id="omega_continuum",
+            omega_config=args.omega_config,
             omega_map=args.omega_map,
             rotation_map=args.rotation_map,
             scale_x=args.scale_x,

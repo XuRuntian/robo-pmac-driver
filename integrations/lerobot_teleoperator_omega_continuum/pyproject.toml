@@ -12,6 +12,7 @@ dependencies = [
     "lerobot>=0.5.2",
     "numpy>=2.0.0",
     "pynput>=1.7.0",
+    "pyyaml>=6.0.3",
 ]
 
 [tool.setuptools.packages.find]

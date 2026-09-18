@@ -150,8 +150,11 @@ world-frame tip-axis tilt through `rx`/`rz`; world `ry` maps to the disabled
 continuum-frame tool roll `Rz`.
 
 The Omega device's source-axis mapping is deliberately not part of this
-robot-frame configuration.  Configure it with the Omega adapter's own
-`--omega-map` option.
+robot-frame configuration. Configure it only in `config/omega_teleop.yaml`.
+The three layers are: Omega raw -> WORLD (input-device config), WORLD -> IK
+(this interface config), and IK/geometry/tendon (continuum config). For
+example, raw Omega +Z with `map: zxy` becomes WORLD +X, then the interface
+frame applies its configured map/signs to produce the internal IK vector.
 The translation mapping is:
 
 | Omega motion | Robot channel | Mechanism |
@@ -160,9 +163,8 @@ The translation mapping is:
 | Y | robot Y (sign-inverted) | bending through axes 1-4 |
 | X | robot Z | axis 5 linear unit |
 
-`omega_map: zyx` means robot XYZ receives Omega ZYX.  The robot-Y scale is
-negative because the corrected +Y direction is opposite the previous upward
-direction.
+The YAML `signs` are applied after reordering and `gain` is applied per WORLD
+axis; this correction is performed once by the Omega adapter.
 
 Omega orientation is sampled at startup and converted into a relative rotation
 vector in the startup handle frame. Rotation commands are tip-local, so the

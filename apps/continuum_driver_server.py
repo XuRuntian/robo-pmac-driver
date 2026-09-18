@@ -467,6 +467,9 @@ def main() -> None:
 
     continuum_cfg = load_continuum_config(args.config)
     interface_cfg = load_robot_interface_config(args.interface_config)
+    print("WORLD → IK:")
+    print(f"  translation map={interface_cfg.frame.translation_map} signs={list(interface_cfg.frame.translation_signs)}")
+    print(f"  rotation map={interface_cfg.frame.rotation_map} signs={list(interface_cfg.frame.rotation_signs)}")
     if continuum_cfg.control.update_hz != interface_cfg.control_hz:
         raise ValueError(
             "continuum control update_hz and robot interface control_hz must match: "

@@ -88,7 +88,6 @@ class CartesianFrameConfig:
 @dataclass(frozen=True)
 class RobotInterfaceConfig:
     control_hz: int
-    omega_map: str
     frame: CartesianFrameConfig
     initial_position: InitialPositionConfig
     command: CartesianCommandConfig
@@ -169,10 +168,6 @@ def load_robot_interface_config(
             "Enabled orientation control requires non-zero rotation and angular speed limits."
         )
 
-    # Kept only as a backwards-compatible metadata field.  Robot-frame
-    # conversion is controlled by frame.*; Omega source mapping belongs to
-    # the Omega adapter and is intentionally independent.
-    omega_map = _axis_map(raw.get("omega_map", "xyz"), "omega_map")
     frame_raw = raw.get("frame", {})
     frame = CartesianFrameConfig(
         translation_map=_axis_map(frame_raw.get("translation_map", "yxz"), "frame.translation_map"),
@@ -189,7 +184,6 @@ def load_robot_interface_config(
 
     return RobotInterfaceConfig(
         control_hz=int(raw["control_hz"]),
-        omega_map=omega_map,
         frame=frame,
         initial_position=initial,
         command=command,

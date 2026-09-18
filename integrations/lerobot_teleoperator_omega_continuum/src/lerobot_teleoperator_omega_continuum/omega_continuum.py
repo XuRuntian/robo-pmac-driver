@@ -13,6 +13,7 @@ from lerobot.utils.errors import DeviceNotConnectedError
 
 from .config_omega_continuum import OmegaContinuumConfig
 from .mapping import ACTION_FIELDS, OmegaContinuumMapper
+from .omega_config import OmegaAxisConfig, load_omega_teleop_config
 
 
 class OmegaContinuum(Teleoperator):
@@ -55,21 +56,35 @@ class OmegaContinuum(Teleoperator):
         self._last_rotation_debug_signature: tuple[str, str] | None = None
         self._last_rotation_debug_omega_rad = 0.0
         self._last_rotation_debug_tip_rad = 0.0
+        omega_cfg = load_omega_teleop_config(config.omega_config)
+        translation = omega_cfg.translation
+        rotation = omega_cfg.rotation
+        # Explicit legacy CLI values override YAML only when supplied.
+        if config.omega_map is not None or any(value is not None for value in (config.scale_x, config.scale_y, config.scale_z)):
+            translation = OmegaAxisConfig(
+                config.omega_map or translation.map,
+                translation.signs,
+                tuple(value if value is not None else old for value, old in zip((config.scale_x, config.scale_y, config.scale_z), translation.gain)),
+            )
+        if config.rotation_map is not None or any(value is not None for value in (config.rotation_scale_x, config.rotation_scale_y, config.rotation_scale_z)):
+            rotation = OmegaAxisConfig(
+                config.rotation_map or rotation.map,
+                rotation.signs,
+                tuple(value if value is not None else old for value, old in zip((config.rotation_scale_x, config.rotation_scale_y, config.rotation_scale_z), rotation.gain)),
+            )
+        self._omega_config = omega_cfg
+        print("Omega → WORLD:")
+        print(f"  translation map={translation.map} signs={list(translation.signs)} gain={list(translation.gain)}")
+        print(f"  rotation map={rotation.map} signs={list(rotation.signs)} gain={list(rotation.gain)}")
         self._mapper = OmegaContinuumMapper(
-            scale_xyz=(config.scale_x, config.scale_y, config.scale_z),
             max_delta_xyz=(config.max_delta_x, config.max_delta_y, config.max_delta_z),
             deadband_m=config.deadband_m,
-            omega_map=config.omega_map,
-            rotation_map=config.rotation_map,
+            translation_config=translation,
+            rotation_config=rotation,
             position_offset_xyz=(
                 config.position_offset_x,
                 config.position_offset_y,
                 config.position_offset_z,
-            ),
-            rotation_scale_xyz=(
-                config.rotation_scale_x,
-                config.rotation_scale_y,
-                config.rotation_scale_z,
             ),
             max_rotation_xyz=(
                 config.max_rotation_x,

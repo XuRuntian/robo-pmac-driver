@@ -17,9 +17,9 @@ def test_load_robot_interface_config() -> None:
     config = load_robot_interface_config("config/robot_interface.yaml")
 
     assert config.control_hz == 50
-    assert config.omega_map == "xzy"
-    assert config.command.max_speed_m_s[0] == 0.05
-    assert config.command.max_speed_m_s[1] == 0.05
+    assert not hasattr(config, "omega_map")
+    assert config.command.max_speed_m_s[0] == 0.01
+    assert config.command.max_speed_m_s[1] == 0.01
     assert config.command.orientation_enabled
     assert config.command.max_rotation_delta_rad == (0.45, 0.0, 0.45)
     assert config.command.smooth_alpha == 0.5
@@ -57,7 +57,6 @@ def test_loader_rejects_unchecked_configured_reference(tmp_path) -> None:
     path.write_text(
         """
 control_hz: 50
-omega_map: zxy
 initial_position:
   mode: configured_reference
   reference_pulses: [1, 2, 3, 4, 5]
