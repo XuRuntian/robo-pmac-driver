@@ -14,9 +14,10 @@ control_hz: 50
 
 frame:
   translation_map: zxy
-  translation_signs: [-1, 1, 1] 
+  translation_signs: [-1, 1, 1]
   # Angular vectors use the same basis change as XYZ vectors:
-  # world [X, Y, Z] -> continuum [X, -Z, Y].
+  # Current mapping: world [X, Y, Z] -> internal [-Z, X, Y].
+  # Hardware WORLD-axis calibration is still pending; preserve these values.
   rotation_map: zxy
   rotation_signs: [-1, 1, 1]
 
@@ -27,7 +28,8 @@ initial_position:
   # For reproducible datasets, switch to configured_reference after the
   # reference position and tolerances have been physically validated.
   mode: capture_current
-  reference_pulses: [63037980, 503187440, -141762994, 404354914, 18]
+  # Recorded approximately straight pose; capture_current does not use it as zero.
+  reference_pulses: [68887403, 502449050, -138990801, 404264370, 957431]
   reject_all_zero_feedback: true
   require_near_reference: false
   tolerance_pulses: null
@@ -43,8 +45,8 @@ command:
   orientation_enabled: true
   # External/world rotations: Rx and Rz are enabled; Ry maps to the
   # continuum tool-axis roll and is disabled.
-  max_rotation_delta_rad: [3.0, 0.0, 3.0]
-  max_angular_speed_rad_s: [0.45, 0.0, 0.45]
+  max_rotation_delta_rad: [6.0, 0.0, 6.0]
+  max_angular_speed_rad_s: [0.5, 0.0, 0.5]
 
   deadband_m: 0.0003
-  smooth_alpha: 0.5
+  smooth_alpha: 0.5 # 平滑度 1.0 为关闭

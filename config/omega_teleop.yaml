@@ -9,7 +9,7 @@ translation:
 rotation:
   map: zyx
   signs: [-1, 1, 1]
-  gain: [0.3, 0.0, 0.3]
+  gain: [1.0, 0.0, 1.0]
 
 # rx->rz
 # ry -> 空

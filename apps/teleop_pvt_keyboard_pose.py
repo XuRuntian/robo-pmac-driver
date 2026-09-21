@@ -28,7 +28,8 @@ ACTION_KEYS = (
 class MujocoMirror:
     """Display the real driver's logical feedback in the MuJoCo model."""
 
-    def __init__(self, xml_path: Path, physics_steps: int = 100) -> None:
+    def __init__(self, xml_path: Path, physics_steps: int = 100,
+                 config_path: str = "config/continuum.yaml") -> None:
         try:
             import mujoco as mj
             import mujoco.viewer as mjviewer
@@ -38,7 +39,10 @@ class MujocoMirror:
                 '`uv run --with mujoco ...`.'
             ) from exc
 
-        from continuum_sdk.kinematics.joint_motor_model import MotorAngles, TDRCJointMotorModel
+        from continuum_sdk.core.config_loader import load_continuum_config
+        from continuum_sdk.core.factory import build_tendon_mapper
+
+        self.motor_model = build_tendon_mapper(load_continuum_config(config_path)).model
 
         if not xml_path.exists():
             raise FileNotFoundError(f"MuJoCo XML not found: {xml_path}")
@@ -47,7 +51,6 @@ class MujocoMirror:
         self.data = mj.MjData(self.model)
         self.viewer = mjviewer.launch_passive(self.model, self.data, show_left_ui=True)
         self.physics_steps = max(1, int(physics_steps))
-        self.motor_model = TDRCJointMotorModel(hole_radius=0.00215, spool_diameter=0.012)
         self.actuators = {
             name: int(mj.mj_name2id(self.model, mj.mjtObj.mjOBJ_ACTUATOR, name))
             for name in ("a_x", "a_y", "c_x", "c_y", "lin_pos_control")
@@ -296,6 +299,8 @@ def parse_args() -> argparse.Namespace:
         help="MuJoCo XML path (defaults to the sibling surgical_continuum_robot scene).",
     )
     parser.add_argument("--mujoco-physics-steps", type=int, default=100)
+    parser.add_argument("--config", default="config/continuum.yaml",
+                        help="Continuum calibration for feedback decoding; match the driver's config.")
     parser.add_argument("--log-csv", default=None, help="CSV path for timestamped command/feedback logging.")
     return parser.parse_args()
 
@@ -334,6 +339,7 @@ def main() -> None:
         mujoco_mirror = MujocoMirror(
             args.mujoco_xml.resolve() if args.mujoco_xml is not None else default_mujoco_xml(),
             physics_steps=args.mujoco_physics_steps,
+            config_path=args.config,
         )
 
     planner = PosePlanner(

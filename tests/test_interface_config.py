@@ -21,7 +21,7 @@ def test_load_robot_interface_config() -> None:
     assert config.command.max_speed_m_s[0] == 0.01
     assert config.command.max_speed_m_s[1] == 0.01
     assert config.command.orientation_enabled
-    assert config.command.max_rotation_delta_rad == (0.45, 0.0, 0.45)
+    assert config.command.max_rotation_delta_rad == (6.0, 0.0, 6.0)
     assert config.command.smooth_alpha == 0.5
 
 
@@ -106,8 +106,16 @@ def test_tip_command_filter_limits_speed_and_holds() -> None:
 
 
 def test_tip_command_filter_limits_enabled_rotation() -> None:
-    config = load_robot_interface_config("config/robot_interface_rotation.yaml")
-    command_filter = TipCommandFilter(config.command, update_interval_s=0.02)
+    command = CartesianCommandConfig(
+        max_delta_m=(0.03, 0.01, 0.03),
+        max_speed_m_s=(0.08, 0.003, 0.08),
+        orientation_enabled=True,
+        max_rotation_delta_rad=(0.45, 0.0, 0.45),
+        max_angular_speed_rad_s=(0.3, 0.0, 0.3),
+        deadband_m=0.0003,
+        smooth_alpha=1.0,
+    )
+    command_filter = TipCommandFilter(command, update_interval_s=0.02)
 
     command_filter.set_command(
         {

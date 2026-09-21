@@ -58,6 +58,8 @@ class ContinuumIKConfig:
 class ContinuumActuationConfig:
     hole_radius_m: float
     spool_diameter_m: float
+    phi_a_sign: int = 1
+    phi_c_sign: int = 1
 
 
 @dataclass(frozen=True)
