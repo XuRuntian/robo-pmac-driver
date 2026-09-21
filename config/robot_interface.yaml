@@ -14,12 +14,12 @@ control_hz: 50
 
 frame:
   translation_map: zxy
-  translation_signs: [-1, 1, 1]
+  translation_signs: [-1, -1, 1]
   # Angular vectors use the same basis change as XYZ vectors:
   # Current mapping: world [X, Y, Z] -> internal [-Z, X, Y].
   # Hardware WORLD-axis calibration is still pending; preserve these values.
   rotation_map: zxy
-  rotation_signs: [-1, 1, 1]
+  rotation_signs: [1, 1, 1]
 
 initial_position:
   # capture_current preserves the current behavior: startup feedback becomes
