@@ -16,6 +16,7 @@ from continuum_sdk.control.axis_mapper import ContinuumAxisMapper
 from continuum_sdk.control.cartesian_frame import apply_axis_transform
 from continuum_sdk.control.pvt_mapper import ContinuumPVTMapper
 from continuum_sdk.control.tip_command_filter import TipCommandFilter
+from continuum_sdk.control.ik_limit_monitor import IKLimitMonitor
 from continuum_sdk.core.config_loader import load_continuum_config
 from continuum_sdk.core.factory import build_continuum_ik, build_tendon_mapper
 from continuum_sdk.core.interface_config import load_robot_interface_config
@@ -493,7 +494,6 @@ def main() -> None:
         axis_order=pmac_cfg.axis_order,
         axis_signs=pmac_cfg.axis_signs,
     )
-    center_p, center_r = ik.fk_tip()
 
     with ExitStack() as cleanup:
         old_sigterm = signal.signal(signal.SIGTERM, _request_shutdown)
@@ -533,6 +533,18 @@ def main() -> None:
             if args.return_to_reference_on_start:
                 print("Dry-run return-to-reference: using configured reference as base pulses.")
 
+        linear_physical_idx = axis_mapper.axis_order[4]
+        if interface_cfg.initial_position.insertion_zero_pulses is not None:
+            base_pulses[linear_physical_idx] = interface_cfg.initial_position.insertion_zero_pulses
+        initial_logical = axis_mapper.pulses_to_logical(base_pulses, current_pulses)
+        d_min, d_max = ik.geometry.insertion_bounds()
+        if not d_min <= initial_logical[4] <= d_max:
+            raise ValueError(
+                f"Startup insertion d={initial_logical[4]:.6f} m is outside [{d_min}, {d_max}]; "
+                "check axis-5 homing and insertion_zero_pulses."
+            )
+        if robot is not None:
+            robot.base_positions = base_pulses.copy()
         pvt_mapper = ContinuumPVTMapper(
             ik=ik,
             tendon_mapper=tendon_mapper,
@@ -542,6 +554,13 @@ def main() -> None:
             max_inner_steps=continuum_cfg.ik.max_inner_steps,
         )
         command_filter = TipCommandFilter(interface_cfg.command, update_interval)
+        # Seed from the actual encoder pose before forming relative WORLD goals.
+        pvt_mapper.commit_pulses(current_pulses)
+        center_p, center_r = ik.fk_tip()
+        print(f"Startup IK insertion d={ik.u[0]*1000:.3f} mm | "
+              f"axis-5 zero={base_pulses[linear_physical_idx]} pulses | "
+              f"current={current_pulses[linear_physical_idx]} pulses")
+        ik_limit_monitor = IKLimitMonitor()
         linear_physical_idx = axis_mapper.axis_order[4]
         max_linear_step_pulses = (
             abs(pmac_cfg.pulses_per_meter * interface_cfg.command.max_speed_m_s[2] * update_interval)
@@ -606,7 +625,7 @@ def main() -> None:
         )
         print(f"Base pulses: {base_pulses}")
         if args.lock_linear_axis:
-            print("Linear insertion axis locked at startup base pulse for diagnostics.")
+            print("Linear insertion axis locked at captured startup position for diagnostics.")
         if args.shape_debug_hz > 0.0:
             print(f"Shape diagnostics printing at {args.shape_debug_hz:.2f} Hz")
         if args.motor_debug_hz > 0.0:
@@ -672,9 +691,17 @@ def main() -> None:
                         z_goal=None if r_goal is None else r_goal[:, 2],
                     )
 
+                # Inspect the IK solution before PMAC pulse clipping / feedback
+                # warm-start modifies it. These are model joint limits only.
+                ik_limit_message = ik_limit_monitor.update(
+                    None if watchdog_holding else pvt_command.ik_result, now,
+                )
+                if ik_limit_message is not None:
+                    print(ik_limit_message, flush=True)
+
                 if args.lock_linear_axis:
                     pvt_command.target_pulses[linear_physical_idx] = int(
-                        base_pulses[linear_physical_idx]
+                        current_pulses[linear_physical_idx]
                     )
                     pvt_command.velocities[linear_physical_idx] = 0.0
 
@@ -729,6 +756,9 @@ def main() -> None:
                     "ik_error_m": float(np.linalg.norm(ik_error[:3])),
                     "commanded_tip_error_m": float(np.linalg.norm(center_p + applied_delta - commanded_tip)),
                     "ik_error_norm": float(np.linalg.norm(ik_error)),
+                    "ik_joint_limits": list(ik_limit_monitor.active),
+                    "ik_converged": pvt_command.ik_result.converged,
+                    "ik_limit_attempts": dict(ik_limit_monitor.active),
                     "ik_orientation_error_weighted": (
                         float(np.linalg.norm(ik_error[3:])) if ik_error.size > 3 else 0.0
                     ),

@@ -39,6 +39,7 @@ class InitialPositionConfig:
     reject_all_zero_feedback: bool
     require_near_reference: bool
     tolerance_pulses: tuple[int, int, int, int, int] | None
+    insertion_zero_pulses: int | None = None
 
     def resolve_reference(self, current_pulses: list[int]) -> list[int]:
         current = list(_five_ints(current_pulses, "current_pulses"))
@@ -104,6 +105,8 @@ def load_robot_interface_config(
     tolerance_raw = initial_raw.get("tolerance_pulses")
     initial = InitialPositionConfig(
         mode=initial_raw["mode"],
+        insertion_zero_pulses=(None if initial_raw.get("insertion_zero_pulses") is None
+                               else int(initial_raw["insertion_zero_pulses"])),
         reference_pulses=(
             None if reference_raw is None else _five_ints(reference_raw, "reference_pulses")
         ),

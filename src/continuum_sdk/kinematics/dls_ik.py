@@ -1,5 +1,5 @@
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
@@ -15,6 +15,7 @@ class IKResult:
     error: np.ndarray
     du: np.ndarray
     converged: bool
+    limit_attempts: dict[str, tuple[float, float]] = field(default_factory=dict)
 
 
 def rotx(x: float) -> np.ndarray:
@@ -139,6 +140,7 @@ class DLSIK:
         self.geometry = geometry or ContinuumGeometry()
         self.task_mode = task_mode
         self.u = np.zeros(5, dtype=float)
+        self._limit_attempts = {}
 
         self.lmbda = 8e-3
         self.alpha = 1.0
@@ -206,6 +208,7 @@ class DLSIK:
         z_goal: np.ndarray | None = None,
         max_steps: int = 5,
     ) -> IKResult:
+        self._limit_attempts = {}
         err = None
         du = np.zeros(5, dtype=float)
 
@@ -220,7 +223,27 @@ class DLSIK:
             error=err.copy(),
             du=du.copy(),
             converged=self.has_converged(err),
+            limit_attempts=dict(self._limit_attempts),
         )
+
+    def _record_limit_attempt(self, candidate, d_range, cap_a, cap_c):
+        """Observe proposed solver updates, not finite-difference probes.
+
+        These trials need not be accepted. They are evidence of constrained
+        search, not proof that the goal is unreachable.
+        """
+        for name, value, bound, blocked in (
+            ("d.lower", float(candidate[0]), d_range[0], candidate[0] < d_range[0] - 1e-9),
+            ("d.upper", float(candidate[0]), d_range[1], candidate[0] > d_range[1] + 1e-9),
+            ("theta_a.upper", float(np.hypot(*candidate[1:3])), cap_a,
+             np.hypot(*candidate[1:3]) > cap_a + 1e-8),
+            ("theta_c.upper", float(np.hypot(*candidate[3:5])), cap_c,
+             np.hypot(*candidate[3:5]) > cap_c + 1e-8),
+        ):
+            if blocked:
+                old = self._limit_attempts.get(name)
+                if old is None or abs(value - bound) > abs(old[0] - old[1]):
+                    self._limit_attempts[name] = (value, float(bound))
 
     def step(
         self,
@@ -242,8 +265,10 @@ class DLSIK:
         at_lower_bound = abs(qu[0] - d_range[0]) < 1e-12
         at_upper_bound = abs(qu[0] - d_range[1]) < 1e-12
         if at_lower_bound and dqu[0] < 0.0:
+            self._limit_attempts["d.lower"] = (float(qu[0] + dqu[0]), float(d_range[0]))
             dqu[0] = 0.0
         if at_upper_bound and dqu[0] > 0.0:
+            self._limit_attempts["d.upper"] = (float(qu[0] + dqu[0]), float(d_range[1]))
             dqu[0] = 0.0
 
         if self.step_limit_enabled:
@@ -259,6 +284,7 @@ class DLSIK:
 
         scale = 1.0
         for _ in range(max(0, int(self.line_search_steps))):
+            self._record_limit_attempt(qu + scale * dqu, d_range, cap_a, cap_c)
             qu_try = clamp_qu(qu + scale * dqu, d_range, cap_a, cap_c)
             e_try = self._task_qu(qu_try, p_goal, r_goal, z_goal)
             err_try = float(np.linalg.norm(e_try))
@@ -282,8 +308,10 @@ class DLSIK:
                     / gradient_norm
                 )
                 if at_lower_bound and gradient_update[0] < 0.0:
+                    self._limit_attempts["d.lower"] = (float(qu[0] + gradient_update[0]), float(d_range[0]))
                     gradient_update[0] = 0.0
                 if at_upper_bound and gradient_update[0] > 0.0:
+                    self._limit_attempts["d.upper"] = (float(qu[0] + gradient_update[0]), float(d_range[1]))
                     gradient_update[0] = 0.0
                 if self.step_limit_enabled:
                     max_du = np.asarray(self.max_du, dtype=float)
@@ -293,6 +321,7 @@ class DLSIK:
                         max_du,
                     )
 
+                self._record_limit_attempt(qu + gradient_update, d_range, cap_a, cap_c)
                 qu_try = clamp_qu(qu + gradient_update, d_range, cap_a, cap_c)
                 e_try = self._task_qu(qu_try, p_goal, r_goal, z_goal)
                 err_try = float(np.linalg.norm(e_try))

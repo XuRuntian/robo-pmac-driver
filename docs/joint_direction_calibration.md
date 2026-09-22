@@ -65,6 +65,31 @@ It sends no motion commands and does not update robot_interface.yaml. The saved
 reference in that YAML is currently a record only: mode=capture_current still
 uses fresh startup feedback. Recording a pose does not automatically return to it.
 
+For the driver, `initial_position.insertion_zero_pulses: 0` now overrides only
+the insertion-axis encoder origin. Home axis 5 before use, then advance it;
+startup IK insertion is computed from its displacement from that encoder zero.
+The other four axes retain their configured/captured reference behavior. IK and
+the relative Cartesian center are initialized from startup feedback, avoiding a
+commanded return to insertion zero. Null/omitted insertion_zero_pulses retains
+the old captured-origin behavior. The standalone joint test still holds axis 5
+at its startup position. This change does not perform homing automatically.
+
 Next calibration order: keyboard WORLD commands -> robot_interface frame;
 then Omega raw input -> omega_teleop mapping. Current frame settings and Omega
 gains are retained as working calibration values, not claimed as validated.
+
+## IK constraint diagnostics
+
+The driver prints `IK CONSTRAINED` when the current solve has residual error
+above convergence tolerance and proposed solver steps were restricted by joint
+bounds. It records `proposed`, `limit`, and the weighted task residual, repeats
+every two seconds, and reports cleared constraints. Idle boundary positions
+(such as d=0), converged solves, and reused watchdog-hold commands do not raise
+new warnings. Phi remains periodic and is not a bounded joint.
+
+These observations include rejected line-search trials: they show constrained
+search, not proof that the target is unreachable or that limits caused rebound.
+They do not report Omega input clipping, Cartesian filtering, PMAC clipping or
+measured mechanical stops. State feedback includes `ik_converged` (last solve)
+and `ik_limit_attempts` (active unconverged solve only). Compare commanded motor
+targets with encoder feedback when investigating physical rebound.
