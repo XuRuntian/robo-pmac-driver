@@ -114,7 +114,8 @@ class OmegaContinuumMapper:
         if orientation is None:
             orientation = self._zero_orientation
         orientation = self._validate_orientation(orientation)
-        return _matrix_to_rotvec(self._zero_orientation.T @ orientation)
+        # Express the relative rotation in fixed Omega device WORLD, not initial wrist axes.
+        return _matrix_to_rotvec(orientation @ self._zero_orientation.T)
 
     def set_zero(self, position: np.ndarray, orientation: np.ndarray | None = None) -> None:
         if orientation is None:

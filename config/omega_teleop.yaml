@@ -7,10 +7,9 @@ translation:
   gain: [0.5, 0.5, 0.5]
 
 rotation:
-  map: zyx
-  signs: [1, 1, 1]
-  gain: [2.0, 0.0, 2.0]
+  map: yxz
+  signs: [1, -1, 1]
+  gain: [1.0, 0.0, 1.0]
 
-# rx->rz
-# ry -> 空
-# rz ->rx
+# Omega WORLD Ry -> robot WORLD Rx; Rz -> Rz.
+# Omega WORLD Rx -> robot WORLD -Ry, disabled by the output Y gain.
