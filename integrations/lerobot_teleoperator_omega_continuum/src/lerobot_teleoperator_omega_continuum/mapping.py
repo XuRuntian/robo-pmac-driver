@@ -77,6 +77,7 @@ class OmegaContinuumMapper:
         self.rotation_deadband_rad = float(rotation_deadband_rad)
         self._zero: np.ndarray | None = None
         self._zero_orientation: np.ndarray | None = None
+        self._zero_joints: np.ndarray | None = None
 
     @staticmethod
     def _validate_position(position: np.ndarray) -> np.ndarray:
@@ -108,22 +109,29 @@ class OmegaContinuumMapper:
             raise RuntimeError("Omega zero position has not been sampled.")
         return self.control_position(position, orientation) - self._zero
 
-    def omega_rotation_delta(self, orientation: np.ndarray | None = None) -> np.ndarray:
-        if self._zero_orientation is None:
-            raise RuntimeError("Omega zero orientation has not been sampled.")
-        if orientation is None:
-            orientation = self._zero_orientation
-        orientation = self._validate_orientation(orientation)
-        # Express the relative rotation in fixed Omega device WORLD, not initial wrist axes.
-        return _matrix_to_rotvec(orientation @ self._zero_orientation.T)
+    @staticmethod
+    def _validate_joints(joints: np.ndarray) -> np.ndarray:
+        joints = np.asarray(joints, dtype=float)
+        if joints.shape != (3,) or not np.all(np.isfinite(joints)):
+            raise ValueError("Omega wrist joints must contain three finite angles in rad.")
+        return joints
 
-    def set_zero(self, position: np.ndarray, orientation: np.ndarray | None = None) -> None:
+    def omega_joint_delta(self, joints: np.ndarray) -> np.ndarray:
+        if self._zero_joints is None:
+            raise RuntimeError("Omega wrist joint zero has not been sampled.")
+        return self._validate_joints(joints) - self._zero_joints
+
+    def set_zero(self, position: np.ndarray, orientation: np.ndarray | None = None,
+                 joints: np.ndarray | None = None) -> None:
         if orientation is None:
             orientation = np.eye(3, dtype=float)
         position = self._validate_position(position)
         orientation = self._validate_orientation(orientation)
         self._zero = self.control_position(position, orientation)
         self._zero_orientation = orientation.copy()
+        self._zero_joints = (
+            None if joints is None else self._validate_joints(joints).copy()
+        )
 
     def map_position(self, position: np.ndarray) -> dict[str, float]:
         return self.map_pose(position, self._zero_orientation)
@@ -132,6 +140,7 @@ class OmegaContinuumMapper:
         self,
         position: np.ndarray,
         orientation: np.ndarray | None,
+        joints: np.ndarray | None = None,
     ) -> dict[str, float]:
         if self._zero is None:
             raise RuntimeError("Omega zero position has not been sampled.")
@@ -153,7 +162,9 @@ class OmegaContinuumMapper:
             delta[np.abs(delta) < self.deadband_m] = 0.0
         delta = np.clip(delta, -self.max_delta, self.max_delta)
 
-        omega_rotation = self.omega_rotation_delta(orientation)
+        # Rotation input slots x/y/z now mean wrist joints q1/q2/q3, not spatial axes.
+        # Position-only callers produce no rotation; the teleoperator supplies joints.
+        omega_rotation = np.zeros(3) if joints is None else self.omega_joint_delta(joints)
         robot_rotation = _apply_axis_transform(
             omega_rotation,
             self.rotation_config.map,

@@ -40,6 +40,7 @@ class OmegaContinuum(Teleoperator):
             self._drd = drd
         self._position = np.zeros(3, dtype=float)
         self._orientation = np.eye(3, dtype=float)
+        self._joints = np.zeros(3, dtype=float)
         self._gripper = ctypes.pointer(ctypes.c_double(0.0))
         self._is_connected = False
         self._clutch_pressed = False
@@ -75,7 +76,7 @@ class OmegaContinuum(Teleoperator):
         self._omega_config = omega_cfg
         print("Omega → WORLD:")
         print(f"  translation map={translation.map} signs={list(translation.signs)} gain={list(translation.gain)}")
-        print(f"  rotation map={rotation.map} signs={list(rotation.signs)} gain={list(rotation.gain)}")
+        print(f"  wrist joint delta -> rotation command: map={rotation.map} signs={list(rotation.signs)} gain={list(rotation.gain)} (x/y/z slots = q1/q2/q3)")
         self._mapper = OmegaContinuumMapper(
             max_delta_xyz=(config.max_delta_x, config.max_delta_y, config.max_delta_z),
             deadband_m=config.deadband_m,
@@ -137,7 +138,7 @@ class OmegaContinuum(Teleoperator):
         self._reset_clutch_state()
 
         if self.config.simulate:
-            self._mapper.set_zero(np.zeros(3, dtype=float), np.eye(3, dtype=float))
+            self._mapper.set_zero(np.zeros(3, dtype=float), np.eye(3, dtype=float), np.zeros(3))
             self._start_clutch_listener()
             self._is_connected = True
             return
@@ -160,8 +161,10 @@ class OmegaContinuum(Teleoperator):
             self._is_connected = True
             zero_positions = []
             zero_orientations = []
+            zero_joints = []
             for _ in range(self.config.zero_samples):
                 position, orientation = self._read_pose()
+                zero_joints.append(self._read_joint_angles())
                 zero_positions.append(position)
                 zero_orientations.append(orientation)
                 if self.config.zero_sample_period_s > 0.0:
@@ -172,7 +175,8 @@ class OmegaContinuum(Teleoperator):
             if np.linalg.det(zero_orientation) < 0.0:
                 u[:, -1] *= -1.0
                 zero_orientation = u @ vt
-            self._mapper.set_zero(np.mean(zero_positions, axis=0), zero_orientation)
+            self._mapper.set_zero(np.mean(zero_positions, axis=0), zero_orientation,
+                                  np.mean(zero_joints, axis=0))
             self._start_clutch_listener()
         except Exception:
             try:
@@ -194,6 +198,16 @@ class OmegaContinuum(Teleoperator):
             raise DeviceNotConnectedError("Failed to read the Force Dimension Omega pose.")
         self._dhd.getGripperAngleDeg(self._gripper)
         return self._position.copy(), self._orientation.copy()
+
+    def _read_joint_angles(self) -> np.ndarray:
+        if self.config.simulate:
+            return np.zeros(3, dtype=float)
+        assert self._dhd is not None
+        # forcedimension-core 1.0.0 writes wrist joint angles (rad) into out.
+        result = self._dhd.getOrientationRad(self._joints)
+        if result < 0:
+            raise DeviceNotConnectedError("Failed to read the Force Dimension Omega wrist joints.")
+        return self._mapper._validate_joints(self._joints).copy()
 
     def _read_position(self) -> np.ndarray:
         position, _ = self._read_pose()
@@ -289,6 +303,7 @@ class OmegaContinuum(Teleoperator):
         position: np.ndarray,
         orientation: np.ndarray,
         action: RobotAction,
+        joints: np.ndarray,
     ) -> None:
         if not self.config.axis_debug_enabled:
             return
@@ -354,7 +369,7 @@ class OmegaContinuum(Teleoperator):
         if now - self._last_rotation_debug_at < 1.0 / self.config.axis_debug_hz:
             return
 
-        omega_rotation = self._mapper.omega_rotation_delta(orientation)
+        omega_rotation = self._mapper.omega_joint_delta(joints)
         tip_rotation = np.asarray(
             [
                 action["tip_delta_rx"],
@@ -376,7 +391,7 @@ class OmegaContinuum(Teleoperator):
         ):
             return
 
-        omega_rot_label = self._signed_rotation_label(omega_rot, omega_rot_index)
+        omega_rot_label = f"{'+' if omega_rot >= 0 else '-'}q{omega_rot_index + 1}"
         tip_rot_label = self._signed_rotation_label(tip_rot, tip_rot_index)
         rotation_signature = (omega_rot_label, tip_rot_label)
         rotation_changed_enough = (
@@ -401,7 +416,7 @@ class OmegaContinuum(Teleoperator):
         if self.config.axis_debug_show_xyz:
             line += (
                 " | "
-                f"omegaR=[{omega_rotation[0]:+5.3f},"
+                f"omega_dq=[{omega_rotation[0]:+5.3f},"
                 f"{omega_rotation[1]:+5.3f},"
                 f"{omega_rotation[2]:+5.3f}] "
                 f"tipR=[{tip_rotation[0]:+5.3f},"
@@ -414,12 +429,13 @@ class OmegaContinuum(Teleoperator):
         if not self._is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
         position, orientation = self._read_pose()
+        joints = self._read_joint_angles()
         if self.config.clutch_enabled and self._is_clutch_pressed():
             if not self._clutch_active:
                 self._action_anchor = self._last_action.copy()
                 self._clutch_active = True
                 print("Omega clutch engaged: hold robot target and recenter Omega.")
-            self._mapper.set_zero(position, orientation)
+            self._mapper.set_zero(position, orientation, joints)
             self._last_action = self._clip_action(self._action_anchor)
             return self._action_array_to_dict(self._last_action)
 
@@ -427,8 +443,8 @@ class OmegaContinuum(Teleoperator):
             self._clutch_active = False
             print("Omega clutch released: continue from recentered Omega pose.")
 
-        mapped_action = self._mapper.map_pose(position, orientation)
-        self._maybe_print_axis_debug(position, orientation, mapped_action)
+        mapped_action = self._mapper.map_pose(position, orientation, joints)
+        self._maybe_print_axis_debug(position, orientation, mapped_action, joints)
         mapped = self._action_dict_to_array(mapped_action)
         self._last_action = self._clip_action(self._action_anchor + mapped)
         return self._action_array_to_dict(self._last_action)

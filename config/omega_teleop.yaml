@@ -11,5 +11,6 @@ rotation:
   signs: [1, -1, 1]
   gain: [1.0, 0.0, 1.0]
 
-# Omega WORLD Ry -> robot WORLD Rx; Rz -> Rz.
-# Omega WORLD Rx -> robot WORLD -Ry, disabled by the output Y gain.
+# Rotation input x/y/z slots are wrist joint deltas dq1/dq2/dq3 (rad).
+# Experimental joint control: dq2 -> Rx, dq3 -> Rz; dq1 -> -Ry is disabled.
+# This is not a geometric WORLD-axis correspondence or full pose tracking.
