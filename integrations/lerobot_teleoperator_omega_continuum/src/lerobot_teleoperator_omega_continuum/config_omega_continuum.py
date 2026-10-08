@@ -9,14 +9,13 @@ from lerobot.teleoperators.config import TeleoperatorConfig
 @dataclass
 class OmegaContinuumConfig(TeleoperatorConfig):
     simulate: bool = False
-    scale_x: float = 0.5
-    # Corrected robot frame: +X right, +Y down, +Z forward/insertion.
-    scale_y: float = -0.08
-    scale_z: float = 0.25
-    omega_map: str = "zyx"
-    # Rotation commands are tip-local; their validated physical basis is
-    # unchanged by the world-frame relabeling used for translation.
-    rotation_map: str = "zxy"
+    omega_config: str = "config/omega_teleop.yaml"
+    # Deprecated CLI compatibility overrides. New deployments should leave these unset.
+    scale_x: float | None = None
+    scale_y: float | None = None
+    scale_z: float | None = None
+    omega_map: str | None = None
+    rotation_map: str | None = None
     position_offset_x: float = 0.0
     position_offset_y: float = 0.0
     position_offset_z: float = 0.0
@@ -24,11 +23,11 @@ class OmegaContinuumConfig(TeleoperatorConfig):
     max_delta_y: float = 0.01
     max_delta_z: float = 0.03
     deadband_m: float = 0.0003
-    rotation_scale_x: float = -0.3
+    rotation_scale_x: float | None = None
     # External/world Ry maps to disabled continuum Rz; world Rz maps to
     # continuum -Ry and is the supported second tilt axis.
-    rotation_scale_y: float = 0.0
-    rotation_scale_z: float = 0.3
+    rotation_scale_y: float | None = None
+    rotation_scale_z: float | None = None
     max_rotation_x: float = 0.45
     max_rotation_y: float = 0.0
     max_rotation_z: float = 0.45
@@ -50,13 +49,7 @@ class OmegaContinuumConfig(TeleoperatorConfig):
     axis_debug_change_tip_rot_rad: float = 0.01
 
     def __post_init__(self) -> None:
-        self.omega_map = self.omega_map.lower()
-        self.rotation_map = self.rotation_map.lower()
         self.clutch_key = self.clutch_key.lower()
-        if sorted(self.omega_map) != ["x", "y", "z"]:
-            raise ValueError("omega_map must be a permutation of xyz.")
-        if sorted(self.rotation_map) != ["x", "y", "z"]:
-            raise ValueError("rotation_map must be a permutation of xyz.")
         if not all(
             np.isfinite(value)
             for value in (self.position_offset_x, self.position_offset_y, self.position_offset_z)

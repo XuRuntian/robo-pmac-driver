@@ -1,6 +1,7 @@
 import math
 
 import numpy as np
+import pytest
 
 from continuum_sdk.control.tendon_mapper import ContinuumTendonMapper
 from continuum_sdk.control.axis_mapper import ContinuumAxisMapper
@@ -67,11 +68,11 @@ def test_tendon_mapper_outputs_motor_angles_with_distal_coupling() -> None:
 
     K = 2.0 * R_HOLE / D_SPOOL
     expected_alpha3 = -K * (
-        theta_a * math.cos(math.pi / 4.0 - phi_a)
+        -theta_a * math.cos(math.pi / 4.0 - phi_a)
         + theta_c * math.cos(math.pi / 4.0 - phi_c)
     )
     expected_alpha4 = -K * (
-        theta_a * math.cos(3.0 * math.pi / 4.0 - phi_a)
+        -theta_a * math.cos(3.0 * math.pi / 4.0 - phi_a)
         + theta_c * math.cos(3.0 * math.pi / 4.0 - phi_c)
     )
 
@@ -91,6 +92,62 @@ def test_factory_uses_configured_actuation_parameters() -> None:
     assert ik.geometry.s_a == cfg.geometry.s_a
     assert_close(mapper.model.r_hole, cfg.actuation.hole_radius_m)
     assert_close(mapper.model.d_spool, cfg.actuation.spool_diameter_m)
+    assert mapper.model.phi_a_sign == cfg.actuation.phi_a_sign == -1
+    assert mapper.model.phi_c_sign == cfg.actuation.phi_c_sign == -1
+
+
+@pytest.mark.parametrize("phi", [0., math.pi / 2, -math.pi / 2])
+@pytest.mark.parametrize("theta_c", [0., .25])
+def test_corrected_coupling_matches_hardware_reverse_trial(phi, theta_c):
+    model = build_tendon_mapper(load_continuum_config("config/continuum.yaml")).model
+    joint = JointSpace(theta_a=.2, phi_a=phi, theta_c=theta_c, phi_c=.4)
+    pa, pc = -phi, -.4
+    k = model.K
+    old_a_distal = -k * .2 * np.cos(np.array([math.pi/4, 3*math.pi/4]) - pa)
+    c_distal = -k * theta_c * np.cos(np.array([math.pi/4, 3*math.pi/4]) - pc)
+    motor = model.joint_to_motor_angles(joint)
+    assert np.allclose(motor.as_tuple(), [
+        -k*.2*math.cos(pa), -k*.2*math.sin(pa),
+        *(c_distal - old_a_distal),
+    ])
+    recovered = model.motor_angles_to_joint(motor)
+    assert_close(recovered.theta_c, theta_c)
+    if theta_c:
+        assert_angle_close(recovered.phi_c, .4)
+    else:
+        assert recovered.singular_c
+    tendon = model.joint_to_tendon_lengths(joint)
+    assert_close(tendon.dl5, -tendon.dl7)
+    assert_close(tendon.dl6, -tendon.dl8)
+
+
+@pytest.mark.parametrize("signs", [(1, 1), (-1, 1), (1, -1), (-1, -1)])
+@pytest.mark.parametrize("angles", [(0., 0.), (.3, -.7), (-1.57, 1.57)])
+def test_calibrated_phi_mapping_preserves_coupling_and_roundtrip(signs, angles):
+    model = TDRCJointMotorModel(R_HOLE, D_SPOOL, phi_a_sign=signs[0], phi_c_sign=signs[1])
+    legacy = TDRCJointMotorModel(R_HOLE, D_SPOOL)
+    joint = JointSpace(theta_a=.4, phi_a=angles[0], theta_c=.2, phi_c=angles[1])
+    drive_joint = JointSpace(theta_a=.4, phi_a=signs[0]*angles[0],
+                             theta_c=.2, phi_c=signs[1]*angles[1])
+    motor = model.joint_to_motor_angles(joint)
+    assert np.allclose(motor.as_tuple(), legacy.joint_to_motor_angles(drive_joint).as_tuple())
+    tendon_motor = model.tendon_lengths_to_motor_angles(model.joint_to_tendon_lengths(joint))
+    assert np.allclose(motor.as_tuple(), tendon_motor.as_tuple())
+    recovered = model.motor_angles_to_joint(motor)
+    assert_close(recovered.theta_a, joint.theta_a)
+    assert_close(recovered.theta_c, joint.theta_c)
+    assert_angle_close(recovered.phi_a, joint.phi_a)
+    assert_angle_close(recovered.phi_c, joint.phi_c)
+    # CC coordinates represent public/model joint space, not tendon calibration.
+    assert model.joint_to_cc_components(joint) == legacy.joint_to_cc_components(joint)
+
+
+@pytest.mark.parametrize("sign", [0, 2, -2, .5, float("nan")])
+def test_invalid_phi_calibration_rejected(sign):
+    with pytest.raises(ValueError, match="phi_a_sign"):
+        TDRCJointMotorModel(R_HOLE, D_SPOOL, phi_a_sign=sign)
+    with pytest.raises(ValueError, match="phi_c_sign"):
+        TDRCJointMotorModel(R_HOLE, D_SPOOL, phi_c_sign=sign)
 
 
 def test_pvt_mapper_builds_five_axis_command() -> None:

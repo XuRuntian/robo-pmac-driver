@@ -36,6 +36,11 @@ actuation:
   # Matched to tdrc_robot_system/scripts/hardware/interactive_pmac_joint_test.py.
   hole_radius_m: 0.00215
   spool_diameter_m: 0.012
+  # Public joint phi -> tendon-plane phi; inverse feedback uses the same signs.
+  phi_a_sign: -1
+  phi_c_sign: -1
+  # Hardware observation (2026-09-21): phi_a=0 bends toward WORLD -Z;
+  # phi_c=0 bends toward WORLD +Z. Recorded only: no zero-angle offset applied.
 
 control:
   update_hz: 50

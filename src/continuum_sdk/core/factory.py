@@ -4,6 +4,7 @@ from continuum_sdk.control.tendon_mapper import ContinuumTendonMapper
 from continuum_sdk.core.config import ContinuumConfig
 from continuum_sdk.kinematics.dls_ik import DLSIK
 from continuum_sdk.kinematics.geometry import ContinuumGeometry
+from continuum_sdk.kinematics.joint_motor_model import TDRCJointMotorModel
 
 
 def build_continuum_ik(cfg: ContinuumConfig) -> DLSIK:
@@ -42,4 +43,10 @@ def build_tendon_mapper(cfg: ContinuumConfig) -> ContinuumTendonMapper:
     return ContinuumTendonMapper(
         hole_radius=cfg.actuation.hole_radius_m,
         spool_diameter=cfg.actuation.spool_diameter_m,
+        motor_model=TDRCJointMotorModel(
+            hole_radius=cfg.actuation.hole_radius_m,
+            spool_diameter=cfg.actuation.spool_diameter_m,
+            phi_a_sign=cfg.actuation.phi_a_sign,
+            phi_c_sign=cfg.actuation.phi_c_sign,
+        ),
     )

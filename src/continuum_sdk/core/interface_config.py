@@ -39,6 +39,7 @@ class InitialPositionConfig:
     reject_all_zero_feedback: bool
     require_near_reference: bool
     tolerance_pulses: tuple[int, int, int, int, int] | None
+    insertion_zero_pulses: int | None = None
 
     def resolve_reference(self, current_pulses: list[int]) -> list[int]:
         current = list(_five_ints(current_pulses, "current_pulses"))
@@ -88,7 +89,6 @@ class CartesianFrameConfig:
 @dataclass(frozen=True)
 class RobotInterfaceConfig:
     control_hz: int
-    omega_map: str
     frame: CartesianFrameConfig
     initial_position: InitialPositionConfig
     command: CartesianCommandConfig
@@ -105,6 +105,8 @@ def load_robot_interface_config(
     tolerance_raw = initial_raw.get("tolerance_pulses")
     initial = InitialPositionConfig(
         mode=initial_raw["mode"],
+        insertion_zero_pulses=(None if initial_raw.get("insertion_zero_pulses") is None
+                               else int(initial_raw["insertion_zero_pulses"])),
         reference_pulses=(
             None if reference_raw is None else _five_ints(reference_raw, "reference_pulses")
         ),
@@ -169,10 +171,6 @@ def load_robot_interface_config(
             "Enabled orientation control requires non-zero rotation and angular speed limits."
         )
 
-    # Kept only as a backwards-compatible metadata field.  Robot-frame
-    # conversion is controlled by frame.*; Omega source mapping belongs to
-    # the Omega adapter and is intentionally independent.
-    omega_map = _axis_map(raw.get("omega_map", "xyz"), "omega_map")
     frame_raw = raw.get("frame", {})
     frame = CartesianFrameConfig(
         translation_map=_axis_map(frame_raw.get("translation_map", "yxz"), "frame.translation_map"),
@@ -189,7 +187,6 @@ def load_robot_interface_config(
 
     return RobotInterfaceConfig(
         control_hz=int(raw["control_hz"]),
-        omega_map=omega_map,
         frame=frame,
         initial_position=initial,
         command=command,

@@ -51,6 +51,26 @@ def fake_clock(monkeypatch):
     return clock
 
 
+def test_absolute_insertion_reference_preserves_startup_and_allows_retreat():
+    cfg = load_continuum_config(ROOT / 'config/continuum.yaml')
+    pmac = PMACConfig()
+    axes = ContinuumAxisMapper(pmac.pulses_per_rad, pmac.pulses_per_meter, pmac.axis_order, pmac.axis_signs)
+    current = [68660356, 502364671, -139170067, 404644625, 1058379]
+    base = current.copy()
+    base[pmac.axis_order[4]] = 0
+    ik = build_continuum_ik(cfg)
+    mapper = ContinuumPVTMapper(ik, build_tendon_mapper(cfg), axes, base, .02, 8)
+    mapper.commit_pulses(current)
+    assert ik.u[0] == pytest.approx(1058379 / pmac.pulses_per_meter)
+    center, rotation = ik.fk_tip()
+    stationary = mapper.build_command(center, z_goal=rotation[:, 2])
+    assert np.max(np.abs(np.array(stationary.target_pulses) - current)) <= 1
+    retreat = mapper.build_command(center - np.array([0, 0, .001]), z_goal=rotation[:, 2])
+    assert 0 < retreat.target_pulses[4] < current[4]
+    mapper.commit_pulses(retreat.target_pulses)
+    assert ik.u[0] == pytest.approx(retreat.target_pulses[4] / pmac.pulses_per_meter)
+
+
 def test_startup_return_does_not_replace_zero_feedback_with_reference(fake_clock):
     robot = SimpleNamespace(
         pvt_axis5_max_step=3000,

@@ -153,16 +153,10 @@ lerobot-record `
   --teleop.type=omega_continuum `
   --teleop.id=omega_master `
   --teleop.simulate=true `
-  --teleop.scale_x=0.25 `
-  --teleop.scale_y=-0.08 `
-  --teleop.scale_z=0.25 `
-  --teleop.omega_map=zyx `
+  --teleop.omega_config=D:/project/surgical_continuum_robot/robo-pmac-driver/config/omega_teleop.yaml `
   --teleop.max_rotation_x=0.45 `
   --teleop.max_rotation_y=0.0 `
   --teleop.max_rotation_z=0.45 `
-  --teleop.rotation_scale_x=-0.3 `
-  --teleop.rotation_scale_y=0.0 `
-  --teleop.rotation_scale_z=0.3 `
   --teleop.rotation_deadband_rad=0.01 `
   --dataset.repo_id=local/continuum_omega_test `
   --dataset.root=D:/project/lerobot_data/continuum_omega_test `
@@ -233,21 +227,22 @@ lerobot-teleoperate `
   --teleop.id=omega_master
 ```
 
-The default `omega_continuum` parameters are:
+The default `omega_continuum` parameters are read from
+`config/omega_teleop.yaml`:
 
 ```text
-Robot frame: +X right, +Y down, +Z forward/insertion
-scale XYZ = [0.25, -0.08, 0.25]
+WORLD frame: +X right, +Y forward/insertion, +Z up
+translation map/sign/gain = zyx / [1,-1,1] / [0.5,0.08,0.25]
 max delta XYZ = [0.03, 0.03, 0.005] m
-rotation scale XYZ = [-0.3, 0.0, 0.3]
+rotation map/sign/gain = zxy / [-1,1,1] / [0.3,0.0,0.3]
 max rotation XYZ = [0.45, 0.0, 0.45] rad
 rotation deadband = 0.01 rad
 ```
 
-The sign of `rotation_scale_x` is intentionally negative because the physical
-left-right bend direction was validated that way. World `rz` maps through the
-driver frame transform into continuum-frame `-Ry`; world `ry` maps to the
-disabled continuum-frame tool roll `Rz`.
+The negative rotation direction is encoded by the rotation `signs` in the
+Omega YAML. World `rz` maps through the driver frame transform into
+continuum-frame `-Ry`; world `ry` maps to the disabled continuum-frame tool
+roll `Rz`.
 
 The ZMQ PUSH/PULL transport intentionally supports one active LeRobot robot
 client. PMAC ownership must remain exclusive to the driver service.

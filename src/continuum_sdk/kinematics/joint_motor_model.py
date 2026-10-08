@@ -86,6 +86,8 @@ class TDRCJointMotorModel:
         zero_eps: float = 1e-10,
         motor_index_map: Optional[dict[int, int]] = None,
         motor_direction_map: Optional[dict[int, int]] = None,
+        phi_a_sign: int = 1,
+        phi_c_sign: int = 1,
     ) -> None:
         if hole_radius <= 0.0:
             raise ValueError("hole_radius must be positive.")
@@ -98,6 +100,10 @@ class TDRCJointMotorModel:
         self.d_spool = float(spool_diameter)
         self.cc_sign = float(cc_sign)
         self.zero_eps = float(zero_eps)
+        if phi_a_sign not in (-1, 1) or phi_c_sign not in (-1, 1):
+            raise ValueError("phi_a_sign and phi_c_sign must be +1 or -1.")
+        self.phi_a_sign = phi_a_sign
+        self.phi_c_sign = phi_c_sign
         self._ideal_to_real = self._validate_motor_index_map(motor_index_map)
         self._real_direction = self._validate_motor_direction_map(motor_direction_map)
         self._real_to_ideal = {real_idx: ideal_idx for ideal_idx, real_idx in self._ideal_to_real.items()}
@@ -157,17 +163,20 @@ class TDRCJointMotorModel:
 
     def joint_to_tendon_lengths(self, joint: JointSpace) -> TendonLengths:
         r = self.r_hole
-        phi_a, theta_a = joint.phi_a, joint.theta_a
-        phi_c, theta_c = joint.phi_c, joint.theta_c
+        # Convert public joint angles to calibrated tendon-plane angles once.
+        phi_a, theta_a = self.phi_a_sign * joint.phi_a, joint.theta_a
+        phi_c, theta_c = self.phi_c_sign * joint.phi_c, joint.theta_c
 
         dl1 = r * theta_a * math.cos(self.gamma_a(1) - phi_a)
         dl2 = r * theta_a * math.cos(self.gamma_a(2) - phi_a)
         dl3 = r * theta_a * math.cos(self.gamma_a(3) - phi_a)
         dl4 = r * theta_a * math.cos(self.gamma_a(4) - phi_a)
-        dl5 = r * theta_a * math.cos(self.gamma_a(5) - phi_a) + r * theta_c * math.cos(self.gamma_c(5) - phi_c)
-        dl6 = r * theta_a * math.cos(self.gamma_a(6) - phi_a) + r * theta_c * math.cos(self.gamma_c(6) - phi_c)
-        dl7 = r * theta_a * math.cos(self.gamma_a(7) - phi_a) + r * theta_c * math.cos(self.gamma_c(7) - phi_c)
-        dl8 = r * theta_a * math.cos(self.gamma_a(8) - phi_a) + r * theta_c * math.cos(self.gamma_c(8) - phi_c)
+        # Hardware-validated pass-through correction: distal - proximal.
+        # This reverses only A's contribution, not C's own actuation direction.
+        dl5 = -r * theta_a * math.cos(self.gamma_a(5) - phi_a) + r * theta_c * math.cos(self.gamma_c(5) - phi_c)
+        dl6 = -r * theta_a * math.cos(self.gamma_a(6) - phi_a) + r * theta_c * math.cos(self.gamma_c(6) - phi_c)
+        dl7 = -r * theta_a * math.cos(self.gamma_a(7) - phi_a) + r * theta_c * math.cos(self.gamma_c(7) - phi_c)
+        dl8 = -r * theta_a * math.cos(self.gamma_a(8) - phi_a) + r * theta_c * math.cos(self.gamma_c(8) - phi_c)
 
         return TendonLengths(dl1=dl1, dl2=dl2, dl3=dl3, dl4=dl4, dl5=dl5, dl6=dl6, dl7=dl7, dl8=dl8)
 
@@ -184,17 +193,17 @@ class TDRCJointMotorModel:
 
     def joint_to_motor_angles(self, joint: JointSpace) -> MotorAngles:
         K = self.K
-        phi_a, theta_a = joint.phi_a, joint.theta_a
-        phi_c, theta_c = joint.phi_c, joint.theta_c
+        phi_a, theta_a = self.phi_a_sign * joint.phi_a, joint.theta_a
+        phi_c, theta_c = self.phi_c_sign * joint.phi_c, joint.theta_c
 
         alpha1 = -K * theta_a * math.cos(phi_a)
         alpha2 = -K * theta_a * math.sin(phi_a)
         alpha3 = -K * (
-            theta_a * math.cos(math.pi / 4.0 - phi_a)
+            -theta_a * math.cos(math.pi / 4.0 - phi_a)
             + theta_c * math.cos(math.pi / 4.0 - phi_c)
         )
         alpha4 = -K * (
-            theta_a * math.cos(3.0 * math.pi / 4.0 - phi_a)
+            -theta_a * math.cos(3.0 * math.pi / 4.0 - phi_a)
             + theta_c * math.cos(3.0 * math.pi / 4.0 - phi_c)
         )
 
@@ -215,17 +224,20 @@ class TDRCJointMotorModel:
         singular_a = is_singular_theta(theta_a, self.zero_eps)
         phi_a = 0.0 if singular_a else wrap_to_pi(math.atan2(-a2, -a1))
 
-        u = -a3 / K - theta_a * math.cos(math.pi / 4.0 - phi_a)
-        v = -a4 / K - theta_a * math.cos(3.0 * math.pi / 4.0 - phi_a)
+        # -alpha/K = distal - proximal, so recover distal by adding proximal.
+        u = -a3 / K + theta_a * math.cos(math.pi / 4.0 - phi_a)
+        v = -a4 / K + theta_a * math.cos(3.0 * math.pi / 4.0 - phi_a)
 
         theta_c = math.sqrt(u * u + v * v)
         singular_c = is_singular_theta(theta_c, self.zero_eps)
         phi_c = 0.0 if singular_c else wrap_to_pi(math.atan2(u + v, u - v))
 
         return RecoveredJointSpace(
-            phi_a=phi_a,
+            # Remove proximal coupling above in tendon coordinates first;
+            # only then convert both recovered angles to public joint space.
+            phi_a=wrap_to_pi(self.phi_a_sign * phi_a),
             theta_a=theta_a,
-            phi_c=phi_c,
+            phi_c=wrap_to_pi(self.phi_c_sign * phi_c),
             theta_c=theta_c,
             singular_a=singular_a,
             singular_c=singular_c,
