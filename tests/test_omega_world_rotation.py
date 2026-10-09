@@ -2,6 +2,7 @@
 import ast
 import importlib
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -101,8 +102,14 @@ def test_wrist_joint_mapping(math_modules, monkeypatch, q, expected):
     print(f"q={q} dq={dq.round(8)} cmd={np.round(cmd, 8)} rad")
 
 
-def test_joint_rezero_and_translation_offset(math_modules):
+@pytest.mark.parametrize("gain, displacement, expected", [
+    (0.5, 0.001, 0.0005),
+    (0.25, 0.001, 0.0),  # Scaled displacement is inside the 0.3 mm deadband.
+    (0.25, 0.002, 0.0005),
+])
+def test_joint_rezero_and_translation_offset(math_modules, gain, displacement, expected):
     mapping, config = math_modules
+    config = replace(config, translation=replace(config.translation, gain=(gain,) * 3))
     mapper = make_mapper(mapping, config)
     mapper.position_offset = np.array([0.001, 0.002, 0.003])
     q = np.array([0.3, -0.4, 0.7])
@@ -112,8 +119,8 @@ def test_joint_rezero_and_translation_offset(math_modules):
     frame = rotation(2, 30)
     mapper.set_zero(np.ones(3) * .001, frame, q)
     np.testing.assert_allclose(mapper.omega_joint_delta(q), 0, atol=1e-8)
-    action = mapper.map_pose(np.ones(3) * .002, frame, q)
-    np.testing.assert_allclose([action[f"tip_delta_{a}"] for a in "xyz"], [.0005, -.0005, .0005])
+    action = mapper.map_pose(np.ones(3) * (.001 + displacement), frame, q)
+    np.testing.assert_allclose([action[f"tip_delta_{a}"] for a in "xyz"], [expected, -expected, expected])
     np.testing.assert_allclose(mapper.control_position(np.zeros(3), frame), frame @ mapper.position_offset)
     q[2] += 0.1
     assert mapper.map_pose(np.ones(3) * .001, frame, q)["tip_delta_rz"] == pytest.approx(.1)

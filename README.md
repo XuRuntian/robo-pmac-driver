@@ -4,6 +4,8 @@
 
 当前服务入口为 `apps/continuum_driver_server.py`，默认 dry-run；`--execute` 才连接硬件。配套控制器工程为 `surgical_continuum_robot_pmac`。
 
+2026-10-09 调试检查点与第五轴自底向上调试计划见 [延迟诊断与当前状态](docs/latency_diagnosis.md)。当前组合为 50 Hz、显式 `--wait-mode windows-highres` 和 PMAC 5 点预缓冲；Omega 仍存在限速追赶，尚不是整体遥操作验收 baseline。第五轴独立测试入口 `apps/test_axis5_response.py` 默认仅生成离线预览，不自动搜索极限或修改控制器限值。
+
 2026-09-08 起，硬件通信使用协议 v2，需要同时更新 Python 和 PMAC 工程。启动、反馈快照、PVT 确认、回零状态及离线测试说明见 [PMAC 协议与生命周期](docs/pmac_protocol_v2.md)。
 
 LeRobot/Omega 的连接与使用见 [LeRobot integration](docs/lerobot_integration.md)。旧 `move_joints()` 点位协议未在配套 PLC 中实现，当前会明确拒绝；使用 PVT 服务或 PVT 应用入口。

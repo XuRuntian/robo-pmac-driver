@@ -1,4 +1,5 @@
 import pytest
+from dataclasses import replace
 
 from continuum_sdk.control.tip_command_filter import TipCommandFilter
 from continuum_sdk.core.interface_config import (
@@ -23,6 +24,34 @@ def test_load_robot_interface_config() -> None:
     assert config.command.orientation_enabled
     assert config.command.max_rotation_delta_rad == (6.0, 0.0, 6.0)
     assert config.command.smooth_alpha == 0.5
+
+
+def test_insertion_budget_is_independent_of_world_z():
+    config = load_robot_interface_config('config/robot_interface.yaml')
+    changed = replace(config, command=replace(config.command, max_speed_m_s=(.01, .01, .0001)))
+    assert config.insertion_step_limit(62781744., .02) == pytest.approx(12556.3488)
+    assert changed.insertion_step_limit(62781744., .02) == config.insertion_step_limit(62781744., .02)
+    assert changed.insertion_step_limit(62781744., .02, 3000) == 3000
+    slower = replace(config, insertion_max_speed_m_s=.001)
+    assert slower.insertion_step_limit(62781744., .02, 3000) == pytest.approx(1255.63488)
+
+
+def test_old_config_does_not_silently_derive_insertion_from_world_z():
+    config = replace(load_robot_interface_config('config/robot_interface.yaml'), insertion_max_speed_m_s=None)
+    with pytest.raises(ValueError, match='execution.insertion_max_speed_m_s'):
+        config.insertion_step_limit(62781744., .02)
+
+
+@pytest.mark.parametrize('speed',[0., -1., float('nan'), float('inf')])
+def test_invalid_insertion_limit_rejected_by_loader(tmp_path, speed):
+    import yaml
+    from pathlib import Path
+    raw=yaml.safe_load(Path('config/robot_interface.yaml').read_text(encoding='utf-8'))
+    raw['execution']['insertion_max_speed_m_s']=speed
+    path=tmp_path/'interface.yaml'
+    path.write_text(yaml.safe_dump(raw),encoding='utf-8')
+    with pytest.raises(ValueError,match='finite and positive'):
+        load_robot_interface_config(path)
 
 
 def test_capture_current_rejects_all_zero_feedback() -> None:

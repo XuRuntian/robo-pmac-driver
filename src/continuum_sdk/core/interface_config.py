@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Literal
 
@@ -92,6 +93,26 @@ class RobotInterfaceConfig:
     frame: CartesianFrameConfig
     initial_position: InitialPositionConfig
     command: CartesianCommandConfig
+    insertion_max_speed_m_s: float | None = None
+
+    def insertion_step_limit(self, pulses_per_meter: float, dt_s: float,
+                             controller_max_step: int | None = None) -> float:
+        """Independent logical insertion budget, intersected with the live PLC cap.
+
+        This remains a per-axis guard, NOT coordinated trajectory limiting.
+        Missing execution limits are rejected before opening hardware by driver.
+        """
+        speed = self.insertion_max_speed_m_s
+        if speed is None:
+            raise ValueError('Set execution.insertion_max_speed_m_s explicitly; WORLD Z speed is not an insertion limit.')
+        if any(not math.isfinite(v) or v <= 0 for v in (speed, pulses_per_meter, dt_s)):
+            raise ValueError('Insertion speed, pulse scale, and period must be finite and positive.')
+        limit = speed * pulses_per_meter * dt_s
+        if controller_max_step is not None:
+            if not math.isfinite(controller_max_step) or controller_max_step <= 0:
+                raise ValueError('Controller insertion step limit must be finite and positive.')
+            limit = min(limit, controller_max_step)
+        return limit
 
 
 def load_robot_interface_config(
@@ -185,9 +206,15 @@ def load_robot_interface_config(
         ),
     )
 
+    execution_raw = raw.get("execution", {})
+    speed_raw = execution_raw.get("insertion_max_speed_m_s")
+    insertion_speed = None if speed_raw is None else float(speed_raw)
+    if insertion_speed is not None and (not math.isfinite(insertion_speed) or insertion_speed <= 0):
+        raise ValueError('execution.insertion_max_speed_m_s must be finite and positive.')
     return RobotInterfaceConfig(
         control_hz=int(raw["control_hz"]),
         frame=frame,
         initial_position=initial,
         command=command,
+        insertion_max_speed_m_s=insertion_speed,
     )

@@ -86,6 +86,75 @@ class Mailbox:
         return [self.ram.get(address + i * 2, 0) for i in range(count)]
 
 
+def test_diagnostic_status_reuses_ack_without_extra_reads():
+    mailbox = Mailbox()
+    mailbox.ram[206] = 7
+    protocol = PMACProtocol(mailbox)
+    protocol.submit_pvt([1] * 5, [0] * 5, 200000)
+    assert protocol.last_pvt_status.queued == 7
+    assert protocol.last_pvt_status.accepted == 1
+    assert sum(event[0] == 'read' for event in mailbox.events) == 3
+    mailbox.fail_address = 0
+    with pytest.raises(ConnectionError):
+        protocol.submit_pvt([1] * 5, [0] * 5, 200000)
+    assert protocol.last_pvt_status is None
+
+
+def test_transaction_timing_separates_io_and_oversleep_without_new_requests(monkeypatch):
+    from pmac_sdk.controller import protocol as module
+    clock = SimpleNamespace(now=0.0)
+    monkeypatch.setattr(module.time, 'perf_counter', lambda: clock.now)
+    monkeypatch.setattr(module.time, 'monotonic', lambda: clock.now)
+    monkeypatch.setattr(module.time, 'sleep', lambda _: setattr(clock, 'now', clock.now + .015))
+
+    class SlowMailbox(Mailbox):
+        def __init__(self):
+            super().__init__()
+            self.delayed = set()
+        def write_int32_array(self, address, values):
+            clock.now += .002
+            return super().write_int32_array(address, values)
+        def read_int32_array(self, address, count):
+            clock.now += .001
+            if address == 200:
+                for request in (200, 208):
+                    if self.ram[request] and request not in self.delayed:
+                        self.delayed.add(request)
+                        self.events.append(('read', address, count))
+                        return [self.ram.get(address + i * 2, 0) for i in range(count)]
+            return super().read_int32_array(address, count)
+
+    enabled = SlowMailbox()
+    traced = PMACProtocol(enabled)
+    traced.trace_enabled = True
+    traced.submit_pvt([1]*5, [0]*5, 200000)
+    timing = traced.last_submit_timing
+    assert timing.success and timing.reads == 4 and timing.writes == 4
+    assert timing.polls == 3 and timing.sleeps == 1
+    assert timing.read_ms == pytest.approx(4)
+    assert timing.write_ms == pytest.approx(8)
+    assert timing.sleep_requested_ms == pytest.approx(1)
+    assert timing.sleep_ms == pytest.approx(15)
+    assert timing.total_ms == pytest.approx(27)
+    traced.snapshot()
+    snap = traced.last_snapshot_timing
+    assert snap.reads == 5 and snap.writes == 1 and snap.sleeps == 1
+    assert snap.total_ms == pytest.approx(22)
+    assert traced.last_submit_timing is timing
+    disabled = SlowMailbox()
+    plain = PMACProtocol(disabled)
+    plain.submit_pvt([1]*5, [0]*5, 200000)
+    plain.snapshot()
+    assert enabled.events == disabled.events
+    assert plain.last_submit_timing is None and plain.last_snapshot_timing is None
+    enabled.fail_address = 0
+    with pytest.raises(ConnectionError):
+        traced.submit_pvt([1]*5, [0]*5, 200000)
+    assert not traced.last_submit_timing.success
+    assert traced.last_submit_timing.writes == 1
+    assert traced._active_timing is None
+
+
 @pytest.fixture
 def rig(monkeypatch):
     mailbox = Mailbox()

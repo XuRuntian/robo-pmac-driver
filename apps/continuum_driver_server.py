@@ -4,7 +4,9 @@ import argparse
 from contextlib import ExitStack
 from dataclasses import replace
 import csv
+import json
 import signal
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -28,6 +30,8 @@ from continuum_sdk.transport.zmq_protocol import (
 )
 from pmac_sdk.controller.robot_api import PMACRobotController
 from pmac_sdk.core.config_model import PMACConfig
+from pmac_sdk.controller.protocol import TransactionTiming
+from pmac_sdk.core.waiting import WindowsHighResolutionWait
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,6 +39,9 @@ def parse_args() -> argparse.Namespace:
         description="Run the fixed-rate PMAC continuum driver and expose a ZMQ control boundary."
     )
     parser.add_argument("--config", default="config/continuum.yaml")
+    parser.add_argument("--latency-csv", help="Optional per-cycle latency trace; exclusive-create, no extra PMAC reads.")
+    parser.add_argument("--wait-mode", choices=("system", "windows-highres"), default="system",
+                        help="Wait backend for protocol polling and main loop; default keeps existing behavior.")
     parser.add_argument("--interface-config", default="config/robot_interface.yaml")
     parser.add_argument("--pmac-ip", default="192.168.0.200")
     parser.add_argument("--bind-host", default="127.0.0.1")
@@ -480,6 +487,10 @@ def main() -> None:
     pmac_cfg = PMACConfig(ip=args.pmac_ip)
     update_hz = interface_cfg.control_hz
     update_interval = 1.0 / update_hz
+    # Validate explicit actuator policy before opening the hardware connection.
+    max_linear_step_pulses = interface_cfg.insertion_step_limit(
+        pmac_cfg.pulses_per_meter, update_interval,
+    )
     feedback_interval = 1.0 / args.feedback_hz
 
     ik = build_continuum_ik(continuum_cfg)
@@ -496,11 +507,42 @@ def main() -> None:
     )
 
     with ExitStack() as cleanup:
+        wait_mode = getattr(args, "wait_mode", "system")
+        cycle_sleep = time.sleep
+        if wait_mode == "windows-highres":
+            wait_backend = WindowsHighResolutionWait()
+            cleanup.callback(wait_backend.close)
+            cycle_sleep = wait_backend.sleep
+        print(f"Wait mode: {wait_mode}")
+        latency_file = None
+        latency_writer = None
+        if getattr(args, "latency_csv", None):
+            latency_path = Path(args.latency_csv)
+            latency_path.parent.mkdir(parents=True, exist_ok=True)
+            latency_file = latency_path.open("x", newline="", encoding="utf-8")
+            # Register before the controller so abort/close precedes final log flushing.
+            cleanup.callback(latency_file.close)
+            latency_file.write("# " + json.dumps({
+                "latency_schema": 2,
+                "wait_mode": wait_mode,
+                "python_version": sys.version,
+                "protocol_poll_interval_s": pmac_cfg.poll_interval_s,
+                "execute": args.execute, "control_hz": update_hz,
+                "feedback_hz": args.feedback_hz,
+                "interface_yaml": Path(args.interface_config).read_text(encoding="utf-8"),
+                "continuum_yaml": Path(args.config).read_text(encoding="utf-8"),
+                "axis_order": pmac_cfg.axis_order, "axis_signs": pmac_cfg.axis_signs,
+                "note": "Host monotonic times; feedback request interval bounds acquisition; queued is software queue only.",
+            }, ensure_ascii=True) + "\n")
         old_sigterm = signal.signal(signal.SIGTERM, _request_shutdown)
         cleanup.callback(signal.signal, signal.SIGTERM, old_sigterm)
         robot = PMACRobotController(pmac_cfg) if args.execute else None
         if robot is not None:
             cleanup.callback(robot.close)
+            if wait_mode == "windows-highres":
+                robot.protocol.sleep_fn = cycle_sleep
+            if latency_file is not None:
+                robot.protocol.trace_enabled = True
         if robot is not None:
             robot.safe_boot_and_home()
             current_pulses = robot.base_positions.copy()
@@ -562,11 +604,13 @@ def main() -> None:
               f"current={current_pulses[linear_physical_idx]} pulses")
         ik_limit_monitor = IKLimitMonitor()
         linear_physical_idx = axis_mapper.axis_order[4]
-        max_linear_step_pulses = (
-            abs(pmac_cfg.pulses_per_meter * interface_cfg.command.max_speed_m_s[2] * update_interval)
-        )
         if robot is not None:
-            max_linear_step_pulses = min(max_linear_step_pulses, robot.pvt_axis5_max_step)
+            max_linear_step_pulses = interface_cfg.insertion_step_limit(
+                pmac_cfg.pulses_per_meter, update_interval, robot.pvt_axis5_max_step,
+            )
+        print(f"Insertion step budget: {max_linear_step_pulses:.3f} counts/segment "
+              f"({max_linear_step_pulses / pmac_cfg.pulses_per_meter / update_interval * 1000:.3f} mm/s); "
+              "independent of WORLD Z. Per-axis guard, not coordinated limiting.")
 
         context = zmq.Context()
         cleanup.callback(context.term)
@@ -592,6 +636,13 @@ def main() -> None:
         feedback_pulses = current_pulses.copy()
         last_target_pulses = current_pulses.copy()
         previous_command = None
+        trace_raw_action = {}
+        trace_previous_start = None
+        trace_feedback_start = None
+        trace_feedback_end = None
+        trace_previous_log_ms = 0.0
+        trace_previous_sleep_requested_ms = 0.0
+        trace_previous_sleep_actual_ms = 0.0
         next_feedback = time.perf_counter()
         next_call = time.perf_counter()
         state_sequence = 0
@@ -637,6 +688,9 @@ def main() -> None:
             start_time = time.perf_counter()
             while True:
                 now = time.perf_counter()
+                trace_fresh = False
+                trace_submit_start = trace_submit_end = None
+                trace_receive_kind = ""
                 message = _latest_message(command_socket)
                 if message is not None:
                     try:
@@ -647,8 +701,10 @@ def main() -> None:
                         else:
                             assert action is not None
                             command_filter.set_command(action)
+                            trace_raw_action = dict(action)
                             watchdog_holding = False
                         last_command_time = now
+                        trace_receive_kind = kind
                         last_command_error = ""
                     except (KeyError, TypeError, ValueError) as exc:
                         rejected_commands += 1
@@ -663,6 +719,7 @@ def main() -> None:
                     command_filter.hold()
                     watchdog_holding = True
 
+                trace_prepare_start = time.perf_counter() if latency_file else 0.0
                 applied_delta = command_filter.step()
                 applied_rotation = apply_axis_transform(
                     command_filter.applied_rotation,
@@ -674,6 +731,7 @@ def main() -> None:
                     if interface_cfg.command.orientation_enabled
                     else None
                 )
+                trace_map_start = time.perf_counter() if latency_file else 0.0
                 if watchdog_holding and previous_command is not None:
                     pvt_command = replace(
                         previous_command,
@@ -691,6 +749,7 @@ def main() -> None:
                         z_goal=None if r_goal is None else r_goal[:, 2],
                     )
 
+                trace_map_end = time.perf_counter() if latency_file else 0.0
                 # Inspect the IK solution before PMAC pulse clipping / feedback
                 # warm-start modifies it. These are model joint limits only.
                 ik_limit_message = ik_limit_monitor.update(
@@ -709,24 +768,32 @@ def main() -> None:
                     pvt_command.target_pulses[linear_physical_idx]
                     - last_target_pulses[linear_physical_idx]
                 )
+                requested_linear_delta = linear_delta
                 linear_delta = float(
                     np.clip(linear_delta, -max_linear_step_pulses, max_linear_step_pulses)
                 )
                 pvt_command.target_pulses[linear_physical_idx] = int(
                     round(last_target_pulses[linear_physical_idx] + linear_delta)
                 )
+                applied_linear_delta = (pvt_command.target_pulses[linear_physical_idx]
+                                        - last_target_pulses[linear_physical_idx])
                 pvt_command.velocities[linear_physical_idx] = linear_delta / (
                     update_interval * 1000.0
                 )
 
                 if robot is not None:
+                    trace_submit_start = time.perf_counter() if latency_file else None
                     robot.move_pvt_stream(
                         target_pulses=pvt_command.target_pulses,
                         velocities=pvt_command.velocities,
                         move_time=update_interval * 1000.0,
                     )
+                    trace_submit_end = time.perf_counter() if latency_file else None
                     if now >= next_feedback:
+                        trace_feedback_start = time.perf_counter() if latency_file else None
                         candidate_feedback = robot.read_positions()
+                        trace_feedback_end = time.perf_counter() if latency_file else None
+                        trace_fresh = True
                         if any(candidate_feedback):
                             feedback_pulses = candidate_feedback
                             feedback_valid = True
@@ -827,10 +894,70 @@ def main() -> None:
 
                 state_sequence += 1
                 last_target_pulses = list(pvt_command.target_pulses)
+                if latency_file is not None:
+                    trace_log_start = time.perf_counter()
+                    cached = getattr(getattr(robot, "protocol", None), "last_pvt_status", None)
+                    def relative(value):
+                        return None if value is None else value - start_time
+                    trace_row = {
+                        "sequence": state_sequence - 1, "t_s": now - start_time,
+                        "execute": args.execute, "received_kind": trace_receive_kind,
+                        "period_ms": None if trace_previous_start is None else (now - trace_previous_start) * 1000,
+                        "work_before_log_ms": (trace_log_start - now) * 1000,
+                        "previous_log_ms": trace_previous_log_ms,
+                        "previous_cycle_sleep_requested_ms": trace_previous_sleep_requested_ms,
+                        "previous_cycle_sleep_actual_ms": trace_previous_sleep_actual_ms,
+                        "prepare_ms": (trace_map_start - trace_prepare_start) * 1000,
+                        "ik_mapping_ms": (trace_map_end - trace_map_start) * 1000,
+                        "submit_start_s": relative(trace_submit_start),
+                        "submit_end_s": relative(trace_submit_end),
+                        "submit_ms": None if trace_submit_start is None else (trace_submit_end - trace_submit_start) * 1000,
+                        "feedback_new": trace_fresh,
+                        "feedback_request_start_s": relative(trace_feedback_start),
+                        "feedback_request_end_s": relative(trace_feedback_end),
+                        "feedback_ms": (trace_feedback_end - trace_feedback_start) * 1000 if trace_fresh else None,
+                        "feedback_age_since_read_ms": None if trace_feedback_end is None else (trace_log_start - trace_feedback_end) * 1000,
+                        "queued_at_ack": None if cached is None else cached.queued,
+                        "insertion_step_limit_counts": max_linear_step_pulses,
+                        "insertion_requested_step_counts": requested_linear_delta,
+                        "insertion_applied_step_counts": applied_linear_delta,
+                        "insertion_step_clipped": abs(requested_linear_delta) > max_linear_step_pulses,
+                        "accepted_token": None if cached is None else cached.accepted,
+                        "holding": watchdog_holding,
+                        "command_age_ms": status["command_age_ms"],
+                        "ik_converged": pvt_command.ik_result.converged,
+                    }
+                    protocol = getattr(robot, "protocol", None)
+                    for prefix, metric in (
+                        ("pvt", getattr(protocol, "last_submit_timing", None)),
+                        ("snapshot", getattr(protocol, "last_snapshot_timing", None) if trace_fresh else None),
+                    ):
+                        for field in TransactionTiming.__dataclass_fields__:
+                            trace_row[f"{prefix}_{field}"] = None if metric is None else getattr(metric, field)
+                    for key in applied_action:
+                        trace_row["raw_" + key] = trace_raw_action.get(key)
+                        trace_row["applied_" + key] = applied_action[key]
+                    for idx in range(5):
+                        trace_row[f"target_p{idx + 1}"] = pvt_command.target_pulses[idx]
+                        trace_row[f"feedback_p{idx + 1}"] = feedback_pulses[idx] if robot is not None else None
+                    if latency_writer is None:
+                        latency_writer = csv.DictWriter(latency_file, fieldnames=list(trace_row))
+                        latency_writer.writeheader()
+                    latency_writer.writerow(trace_row)
+                    if state_sequence % 50 == 0:
+                        latency_file.flush()
+                    trace_previous_log_ms = (time.perf_counter() - trace_log_start) * 1000
+                    trace_previous_start = now
                 next_call += update_interval
                 sleep_time = next_call - time.perf_counter()
+                if latency_file is not None:
+                    trace_previous_sleep_requested_ms = max(0.0, sleep_time) * 1000
+                    trace_previous_sleep_actual_ms = 0.0
                 if sleep_time > 0.0:
-                    time.sleep(sleep_time)
+                    trace_sleep_start = time.perf_counter() if latency_file else 0.0
+                    cycle_sleep(sleep_time)
+                    if latency_file is not None:
+                        trace_previous_sleep_actual_ms = (time.perf_counter() - trace_sleep_start) * 1000
                 else:
                     next_call = time.perf_counter()
         except KeyboardInterrupt:
