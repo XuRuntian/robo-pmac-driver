@@ -19,6 +19,7 @@ class PMACRobotController:
         self._boot_requested = False
         self._stream_faulted = False
         self.pvt_axis5_max_step = None
+        self.last_axis5_error_abs_counts = None
 
     def hardware_boot(self):
         """Request the shared PLC reset; connect_and_home waits for completion."""
@@ -98,7 +99,8 @@ class PMACRobotController:
         print(f"✅ 已标定绝对零点偏置: {self.config.zero_offsets}")
 
     def read_positions(self) -> list[int]:
-        positions, _ = self.protocol.snapshot()
+        positions, homing = self.protocol.snapshot()
+        self.last_axis5_error_abs_counts = homing[3]
         return positions
 
     def move_to_absolute_angle(self, joint_idx: int, absolute_angle: float, move_time: int = 500, accel: int = 100, scurve: int = 50):

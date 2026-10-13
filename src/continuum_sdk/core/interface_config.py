@@ -94,6 +94,8 @@ class RobotInterfaceConfig:
     initial_position: InitialPositionConfig
     command: CartesianCommandConfig
     insertion_max_speed_m_s: float | None = None
+    insertion_max_accel_m_s2: float | None = None
+    insertion_error_stop_m: float | None = None
 
     def insertion_step_limit(self, pulses_per_meter: float, dt_s: float,
                              controller_max_step: int | None = None) -> float:
@@ -211,10 +213,20 @@ def load_robot_interface_config(
     insertion_speed = None if speed_raw is None else float(speed_raw)
     if insertion_speed is not None and (not math.isfinite(insertion_speed) or insertion_speed <= 0):
         raise ValueError('execution.insertion_max_speed_m_s must be finite and positive.')
+    accel_raw = execution_raw.get("insertion_max_accel_m_s2")
+    insertion_accel = None if accel_raw is None else float(accel_raw)
+    if insertion_accel is not None and (not math.isfinite(insertion_accel) or insertion_accel <= 0):
+        raise ValueError('execution.insertion_max_accel_m_s2 must be finite and positive.')
+    error_raw = execution_raw.get("insertion_error_stop_m")
+    insertion_error = None if error_raw is None else float(error_raw)
+    if insertion_error is not None and (not math.isfinite(insertion_error) or insertion_error <= 0):
+        raise ValueError('execution.insertion_error_stop_m must be finite and positive.')
     return RobotInterfaceConfig(
         control_hz=int(raw["control_hz"]),
         frame=frame,
         initial_position=initial,
         command=command,
         insertion_max_speed_m_s=insertion_speed,
+        insertion_max_accel_m_s2=insertion_accel,
+        insertion_error_stop_m=insertion_error,
     )

@@ -5,6 +5,7 @@ from contextlib import ExitStack
 from dataclasses import replace
 import csv
 import json
+import math
 import signal
 import sys
 import time
@@ -19,6 +20,7 @@ from continuum_sdk.control.cartesian_frame import apply_axis_transform
 from continuum_sdk.control.pvt_mapper import ContinuumPVTMapper
 from continuum_sdk.control.tip_command_filter import TipCommandFilter
 from continuum_sdk.control.ik_limit_monitor import IKLimitMonitor
+from continuum_sdk.control.insertion_profile import InsertionProfile
 from continuum_sdk.core.config_loader import load_continuum_config
 from continuum_sdk.core.factory import build_continuum_ik, build_tendon_mapper
 from continuum_sdk.core.interface_config import load_robot_interface_config
@@ -491,6 +493,20 @@ def main() -> None:
     max_linear_step_pulses = interface_cfg.insertion_step_limit(
         pmac_cfg.pulses_per_meter, update_interval,
     )
+    use_insertion_profile = interface_cfg.insertion_max_accel_m_s2 is not None
+    if use_insertion_profile and interface_cfg.insertion_max_speed_m_s is None:
+        raise ValueError("Set execution.insertion_max_speed_m_s before enabling the insertion profile.")
+    if use_insertion_profile and interface_cfg.insertion_error_stop_m is None:
+        raise ValueError("Set execution.insertion_error_stop_m before running the driver.")
+    if use_insertion_profile and args.return_to_reference_on_start:
+        raise ValueError("Startup return has not been validated with the insertion profile; "
+                         "use capture_current without --return-to-reference-on-start.")
+    # Validate quantization margins before opening a hardware connection.
+    if use_insertion_profile:
+        InsertionProfile(0, update_interval,
+                         interface_cfg.insertion_max_speed_m_s * pmac_cfg.pulses_per_meter,
+                         interface_cfg.insertion_max_accel_m_s2 * pmac_cfg.pulses_per_meter,
+                         max_linear_step_pulses)
     feedback_interval = 1.0 / args.feedback_hz
 
     ik = build_continuum_ik(continuum_cfg)
@@ -605,12 +621,22 @@ def main() -> None:
         ik_limit_monitor = IKLimitMonitor()
         linear_physical_idx = axis_mapper.axis_order[4]
         if robot is not None:
+            if use_insertion_profile and robot.pvt_axis5_max_step != math.ceil(max_linear_step_pulses):
+                raise ValueError("PMAC Axis5_MaxStep must match the configured insertion budget "
+                                 f"({math.ceil(max_linear_step_pulses)} counts). "
+                                 "Update and verify the paired PMAC parameters before teleoperation.")
             max_linear_step_pulses = interface_cfg.insertion_step_limit(
                 pmac_cfg.pulses_per_meter, update_interval, robot.pvt_axis5_max_step,
             )
         print(f"Insertion step budget: {max_linear_step_pulses:.3f} counts/segment "
               f"({max_linear_step_pulses / pmac_cfg.pulses_per_meter / update_interval * 1000:.3f} mm/s); "
-              "independent of WORLD Z. Per-axis guard, not coordinated limiting.")
+              "independent of WORLD Z. Insertion profile only; not coordinated limiting.")
+        insertion_profile = InsertionProfile(
+            current_pulses[linear_physical_idx], update_interval,
+            interface_cfg.insertion_max_speed_m_s * pmac_cfg.pulses_per_meter,
+            interface_cfg.insertion_max_accel_m_s2 * pmac_cfg.pulses_per_meter,
+            max_linear_step_pulses,
+        ) if use_insertion_profile else None
 
         context = zmq.Context()
         cleanup.callback(context.term)
@@ -769,17 +795,20 @@ def main() -> None:
                     - last_target_pulses[linear_physical_idx]
                 )
                 requested_linear_delta = linear_delta
-                linear_delta = float(
-                    np.clip(linear_delta, -max_linear_step_pulses, max_linear_step_pulses)
-                )
-                pvt_command.target_pulses[linear_physical_idx] = int(
-                    round(last_target_pulses[linear_physical_idx] + linear_delta)
-                )
+                insertion_segment = None
+                if insertion_profile is not None:
+                    insertion_segment = insertion_profile.step(
+                        pvt_command.target_pulses[linear_physical_idx],
+                        holding=watchdog_holding or args.lock_linear_axis,
+                    )
+                    pvt_command.target_pulses[linear_physical_idx] = insertion_segment.position
+                    pvt_command.velocities[linear_physical_idx] = insertion_segment.velocity_counts_ms
+                else:
+                    linear_delta = float(np.clip(linear_delta, -max_linear_step_pulses, max_linear_step_pulses))
+                    pvt_command.target_pulses[linear_physical_idx] = int(round(last_target_pulses[linear_physical_idx] + linear_delta))
+                    pvt_command.velocities[linear_physical_idx] = linear_delta / (update_interval * 1000.0)
                 applied_linear_delta = (pvt_command.target_pulses[linear_physical_idx]
                                         - last_target_pulses[linear_physical_idx])
-                pvt_command.velocities[linear_physical_idx] = linear_delta / (
-                    update_interval * 1000.0
-                )
 
                 if robot is not None:
                     trace_submit_start = time.perf_counter() if latency_file else None
@@ -792,6 +821,12 @@ def main() -> None:
                     if now >= next_feedback:
                         trace_feedback_start = time.perf_counter() if latency_file else None
                         candidate_feedback = robot.read_positions()
+                        error_counts = getattr(robot, "last_axis5_error_abs_counts", None)
+                        if interface_cfg.insertion_error_stop_m is not None and (
+                                error_counts is None or error_counts < 0 or
+                                error_counts / pmac_cfg.pulses_per_meter >= interface_cfg.insertion_error_stop_m):
+                            raise RuntimeError(f"Insertion following error stop: {error_counts} counts; "
+                                               "abort requested, no automatic return.")
                         trace_feedback_end = time.perf_counter() if latency_file else None
                         trace_fresh = True
                         if any(candidate_feedback):
@@ -818,6 +853,8 @@ def main() -> None:
                     ),
                     "feedback_valid": feedback_valid,
                     "linear_axis_locked": args.lock_linear_axis,
+                    "insertion_profile_remaining_m": None if insertion_segment is None else insertion_segment.remaining_counts / pmac_cfg.pulses_per_meter,
+                    "insertion_velocity_m_s": pvt_command.velocities[linear_physical_idx] * 1000 / pmac_cfg.pulses_per_meter,
                     "feedback_pulses": feedback_pulses,
                     "target_pulses": pvt_command.target_pulses,
                     "ik_error_m": float(np.linalg.norm(ik_error[:3])),
@@ -918,10 +955,16 @@ def main() -> None:
                         "feedback_ms": (trace_feedback_end - trace_feedback_start) * 1000 if trace_fresh else None,
                         "feedback_age_since_read_ms": None if trace_feedback_end is None else (trace_log_start - trace_feedback_end) * 1000,
                         "queued_at_ack": None if cached is None else cached.queued,
+                        "insertion_sampled_error_counts": (None if robot is None else getattr(robot, "last_axis5_error_abs_counts", None)),
                         "insertion_step_limit_counts": max_linear_step_pulses,
                         "insertion_requested_step_counts": requested_linear_delta,
                         "insertion_applied_step_counts": applied_linear_delta,
                         "insertion_step_clipped": abs(requested_linear_delta) > max_linear_step_pulses,
+                        "insertion_profile_limited": requested_linear_delta != applied_linear_delta,
+                        "insertion_remaining_counts": None if insertion_segment is None else insertion_segment.remaining_counts,
+                        "insertion_velocity_counts_ms": pvt_command.velocities[linear_physical_idx],
+                        "insertion_peak_speed_m_s": None if insertion_segment is None else insertion_segment.peak_speed_counts_s / pmac_cfg.pulses_per_meter,
+                        "insertion_peak_accel_m_s2": None if insertion_segment is None else insertion_segment.peak_accel_counts_s2 / pmac_cfg.pulses_per_meter,
                         "accepted_token": None if cached is None else cached.accepted,
                         "holding": watchdog_holding,
                         "command_age_ms": status["command_age_ms"],
