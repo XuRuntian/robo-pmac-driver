@@ -280,9 +280,9 @@ class OmegaContinuum(Teleoperator):
                 self.config.max_delta_x,
                 self.config.max_delta_y,
                 self.config.max_delta_z,
-                self.config.max_rotation_x,
-                self.config.max_rotation_y,
-                self.config.max_rotation_z,
+                np.inf if self.config.max_rotation_x is None else self.config.max_rotation_x,
+                np.inf if self.config.max_rotation_y is None else self.config.max_rotation_y,
+                np.inf if self.config.max_rotation_z is None else self.config.max_rotation_z,
             ],
             dtype=float,
         )

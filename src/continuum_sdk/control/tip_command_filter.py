@@ -19,6 +19,7 @@ class TipCommandFilter:
         self._applied_delta = np.zeros(3, dtype=float)
         self._target_rotation = np.zeros(3, dtype=float)
         self._applied_rotation = np.zeros(3, dtype=float)
+        self.rotation_command_limited = False
 
     @property
     def applied_delta(self) -> np.ndarray:
@@ -41,6 +42,8 @@ class TipCommandFilter:
         if not self.config.orientation_enabled and np.any(np.abs(rotation) > 1e-12):
             raise ValueError("Non-zero rotation commands are disabled by the robot interface config.")
         if self.config.orientation_enabled:
+            self.rotation_command_limited = bool(np.any(
+                np.abs(rotation) > np.asarray(self.config.max_rotation_delta_rad, dtype=float)))
             rotation = np.clip(
                 rotation,
                 -np.asarray(self.config.max_rotation_delta_rad, dtype=float),
@@ -71,6 +74,7 @@ class TipCommandFilter:
         """Stop progressing toward a stale target without jumping back to neutral."""
         self._target_delta = self._applied_delta.copy()
         self._target_rotation = self._applied_rotation.copy()
+        self.rotation_command_limited = False
 
     def step(self) -> np.ndarray:
         filtered_target = self._target_delta

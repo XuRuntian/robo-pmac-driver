@@ -22,7 +22,7 @@ def test_load_robot_interface_config() -> None:
     assert config.command.max_speed_m_s[0] == 0.01
     assert config.command.max_speed_m_s[1] == 0.01
     assert config.command.orientation_enabled
-    assert config.command.max_rotation_delta_rad == (6.0, 0.0, 6.0)
+    assert config.command.max_rotation_delta_rad == (0.45, 0.0, 0.45)
     assert config.command.smooth_alpha == 0.5
 
 

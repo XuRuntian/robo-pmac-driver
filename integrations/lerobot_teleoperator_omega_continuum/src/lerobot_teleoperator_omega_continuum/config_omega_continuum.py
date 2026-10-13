@@ -28,9 +28,10 @@ class OmegaContinuumConfig(TeleoperatorConfig):
     # continuum -Ry and is the supported second tilt axis.
     rotation_scale_y: float | None = None
     rotation_scale_z: float | None = None
-    max_rotation_x: float = 0.45
+    # Optional legacy device-side caps. Robot command ranges belong to driver.
+    max_rotation_x: float | None = None
     max_rotation_y: float = 0.0
-    max_rotation_z: float = 0.45
+    max_rotation_z: float | None = None
     rotation_deadband_rad: float = 0.01
     zero_samples: int = 20
     zero_sample_period_s: float = 0.005
@@ -60,10 +61,10 @@ class OmegaContinuumConfig(TeleoperatorConfig):
         if self.deadband_m < 0.0:
             raise ValueError("deadband_m must be non-negative.")
         if any(
-            value < 0.0
+            value is not None and (not np.isfinite(value) or value < 0.0)
             for value in (self.max_rotation_x, self.max_rotation_y, self.max_rotation_z)
         ):
-            raise ValueError("Omega maximum rotations must be non-negative.")
+            raise ValueError("Omega maximum rotations must be finite and non-negative, or None.")
         if self.rotation_deadband_rad < 0.0:
             raise ValueError("rotation_deadband_rad must be non-negative.")
         if self.zero_samples <= 0:

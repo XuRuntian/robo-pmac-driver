@@ -16,7 +16,8 @@ spec.loader.exec_module(server)
 @pytest.mark.parametrize("mock_execute", [False, True])
 @pytest.mark.parametrize("wait_mode", ["system", "windows-highres"])
 @pytest.mark.parametrize("profile_trial", [False, True])
-def test_trace_dry_run_keeps_feedback_unknown_and_records_hold(tmp_path, monkeypatch, mock_execute, wait_mode, profile_trial):
+@pytest.mark.parametrize("live_debug", [False, True])
+def test_trace_dry_run_keeps_feedback_unknown_and_records_hold(tmp_path, monkeypatch, mock_execute, wait_mode, profile_trial, live_debug):
     if wait_mode == "windows-highres" and sys.platform != "win32":
         pytest.skip("Native high resolution backend requires Windows")
     path = tmp_path / "trace.csv"
@@ -24,6 +25,7 @@ def test_trace_dry_run_keeps_feedback_unknown_and_records_hold(tmp_path, monkeyp
     monkeypatch.setattr(sys, "argv", ["driver", "--latency-csv", str(path),
                                       "--command-port", "0", "--state-port", "0", "--wait-mode", wait_mode]
                         + (["--execute"] if mock_execute else [])
+                        + (["--live-debug"] if live_debug else [])
                         + (["--interface-config", "config/robot_interface_axis5_profile_trial.yaml"] if profile_trial else []))
     def forbidden(*args, **kwargs):
         raise AssertionError("Dry-run must not construct a hardware controller")

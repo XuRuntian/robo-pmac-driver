@@ -52,6 +52,30 @@ def make_mapper(mapping, config):
     )
 
 
+def test_default_wrist_rotation_passes_to_driver_range(math_modules):
+    from continuum_sdk.core.interface_config import load_robot_interface_config
+    from continuum_sdk.control.tip_command_filter import TipCommandFilter
+    mapping, config = math_modules
+    mapper = mapping.OmegaContinuumMapper(
+        translation_config=config.translation, rotation_config=config.rotation,
+        max_delta_xyz=(.03, .01, .03), deadband_m=0,
+    )
+    mapper.set_zero(np.zeros(3), np.eye(3), np.zeros(3))
+    action = mapper.map_pose(np.zeros(3), np.eye(3), np.array([1., .8, -.9]))
+    assert action['tip_delta_rx'] == pytest.approx(.8)
+    assert action['tip_delta_ry'] == 0
+    assert action['tip_delta_rz'] == pytest.approx(-.9)
+    cfg = load_robot_interface_config(ROOT/'config/robot_interface.yaml')
+    filt = TipCommandFilter(cfg.command, .02)
+    filt.set_command(action)
+    assert filt.rotation_command_limited
+    for _ in range(300):
+        filt.step()
+    np.testing.assert_allclose(filt.applied_rotation, [.45, 0, -.45], atol=1e-8)
+    filt.hold()
+    assert not filt.rotation_command_limited
+
+
 @pytest.mark.parametrize("axis", [0, 1, 2])
 def test_world_axis_rotation(math_modules, axis):
     # Retained SO(3) utility test, no longer the active teleoperation strategy.
@@ -142,6 +166,9 @@ def test_joint_read_startup_and_clutch_with_fake_sdk(math_modules):
         max_delta_x=.03, max_delta_y=.01, max_delta_z=.03,
         max_rotation_x=.45, max_rotation_y=0, max_rotation_z=.45,
     )
+    omega.config.max_rotation_x = omega.config.max_rotation_z = None
+    np.testing.assert_allclose(omega._clip_action(np.array([0,0,0,.8,1,-.9])), [0,0,0,.8,0,-.9])
+    omega.config.max_rotation_x = omega.config.max_rotation_z = .45
     samples = iter([[.2, -.4, .7], [.4, -.4, .7]])
     current = np.array([.3, -.4, .7])
     def get_angles(out):

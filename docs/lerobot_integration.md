@@ -1,5 +1,28 @@
 # LeRobot Integration
 
+## Rotation range ownership (2026-10-13)
+
+Current Omega plugin defaults are `max_rotation_x=None`, `max_rotation_z=None`,
+and `max_rotation_y=0`. Wrist-joint mapping, gains, deadband, and clutch anchors
+are unchanged. Both the mapper and post-clutch action clipping now pass Rx/Rz
+through unless the user explicitly supplies a legacy device-side cap.
+
+The main and axis-5 trial robot interface YAML files own the effective range:
+`command.max_rotation_delta_rad: [0.45, 0.0, 0.45]`. This transfers the previous
+effective Omega envelope to the driver; it does not expand the tested range.
+It also applies to keyboard and other clients, whose driver range was formerly
+6 rad. Range expansion is a separate operational decision and does not imply
+that every target inside a command box is reachable.
+
+Omit `--teleop.max_rotation_x` and `--teleop.max_rotation_z` in new commands;
+legacy examples below with explicit values still opt into a device-side cap.
+Restart both processes to load these changes. Driver state and latency CSV
+include `rotation_command_limited`; the terminal prints `WORLD ROTATION CLAMPED`
+when a command first exceeds the configured range. Existing `IK CONSTRAINED`
+reports solver boundary attempts separately. Neither message proves an actual
+motor limit switch has triggered. Older numerical examples below are historical;
+use the on-disk Omega and robot interface YAML values for the active mapping.
+
 The PMAC hardware link now requires the paired protocol-v2 PLC project. Read
 [PMAC lifecycle and protocol](pmac_protocol_v2.md) before using the hardware commands below.
 The ZMQ/LeRobot action protocol remains unchanged.

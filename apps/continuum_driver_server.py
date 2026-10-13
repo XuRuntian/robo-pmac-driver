@@ -16,6 +16,7 @@ import numpy as np
 import zmq
 
 from continuum_sdk.control.axis_mapper import ContinuumAxisMapper
+from continuum_sdk.control.live_diagnostic import LiveDiagnostic, diagnostic_lines
 from continuum_sdk.control.cartesian_frame import apply_axis_transform
 from continuum_sdk.control.pvt_mapper import ContinuumPVTMapper
 from continuum_sdk.control.tip_command_filter import TipCommandFilter
@@ -41,6 +42,7 @@ def parse_args() -> argparse.Namespace:
         description="Run the fixed-rate PMAC continuum driver and expose a ZMQ control boundary."
     )
     parser.add_argument("--config", default="config/continuum.yaml")
+    parser.add_argument("--live-debug", action="store_true", help="Refresh a fixed four-line IK/axis diagnostic at 4 Hz; interactive terminal only.")
     parser.add_argument("--latency-csv", help="Optional per-cycle latency trace; exclusive-create, no extra PMAC reads.")
     parser.add_argument("--wait-mode", choices=("system", "windows-highres"), default="system",
                         help="Wait backend for protocol polling and main loop; default keeps existing behavior.")
@@ -456,6 +458,8 @@ def _request_shutdown(signum, frame):
 
 def main() -> None:
     args = parse_args()
+    if args.live_debug and (args.shape_debug_hz > 0 or args.motor_debug_hz > 0):
+        raise ValueError("Use --live-debug without --shape-debug-hz or --motor-debug-hz to keep the display fixed.")
     if args.watchdog_timeout <= 0.0:
         raise ValueError("--watchdog-timeout must be positive.")
     if args.feedback_hz <= 0.0:
@@ -661,6 +665,8 @@ def main() -> None:
         feedback_valid = True
         feedback_pulses = current_pulses.copy()
         last_target_pulses = current_pulses.copy()
+        live_debug = LiveDiagnostic(sys.stdout)
+        next_live_debug = 0.0
         previous_command = None
         trace_raw_action = {}
         trace_previous_start = None
@@ -726,7 +732,12 @@ def main() -> None:
                             watchdog_holding = True
                         else:
                             assert action is not None
+                            previously_limited = command_filter.rotation_command_limited
                             command_filter.set_command(action)
+                            if command_filter.rotation_command_limited and not previously_limited and not args.live_debug:
+                                print("WORLD ROTATION CLAMPED | requested rotation exceeds "
+                                      f"driver range {interface_cfg.command.max_rotation_delta_rad} rad; "
+                                      "this is a command cap, not a motor limit.", flush=True)
                             trace_raw_action = dict(action)
                             watchdog_holding = False
                         last_command_time = now
@@ -758,6 +769,7 @@ def main() -> None:
                     else None
                 )
                 trace_map_start = time.perf_counter() if latency_file else 0.0
+                diagnostic_previous_u = ik.u.copy() if args.live_debug else None
                 if watchdog_holding and previous_command is not None:
                     pvt_command = replace(
                         previous_command,
@@ -781,9 +793,11 @@ def main() -> None:
                 ik_limit_message = ik_limit_monitor.update(
                     None if watchdog_holding else pvt_command.ik_result, now,
                 )
-                if ik_limit_message is not None:
+                if ik_limit_message is not None and not args.live_debug:
                     print(ik_limit_message, flush=True)
 
+                diagnostic_requested = (axis_mapper.pulses_to_logical(base_pulses, pvt_command.target_pulses)
+                                        if args.live_debug else None)
                 if args.lock_linear_axis:
                     pvt_command.target_pulses[linear_physical_idx] = int(
                         current_pulses[linear_physical_idx]
@@ -853,6 +867,7 @@ def main() -> None:
                     ),
                     "feedback_valid": feedback_valid,
                     "linear_axis_locked": args.lock_linear_axis,
+                    "rotation_command_limited": command_filter.rotation_command_limited,
                     "insertion_profile_remaining_m": None if insertion_segment is None else insertion_segment.remaining_counts / pmac_cfg.pulses_per_meter,
                     "insertion_velocity_m_s": pvt_command.velocities[linear_physical_idx] * 1000 / pmac_cfg.pulses_per_meter,
                     "feedback_pulses": feedback_pulses,
@@ -929,6 +944,15 @@ def main() -> None:
                             shape_log_writer.writeheader()
                         shape_log_writer.writerow(shape_row)
 
+                if args.live_debug and now >= next_live_debug:
+                    live_debug.draw(diagnostic_lines(
+                        pvt_command.ik_result, diagnostic_previous_u, diagnostic_requested,
+                        axis_mapper.pulses_to_logical(base_pulses, pvt_command.target_pulses),
+                        np.asarray(axis_mapper.pulses_to_logical(base_pulses, last_target_pulses)),
+                        ik.geometry, holding=watchdog_holding,
+                        rotation_limited=command_filter.rotation_command_limited,
+                    ))
+                    next_live_debug = now + .25
                 state_sequence += 1
                 last_target_pulses = list(pvt_command.target_pulses)
                 if latency_file is not None:
@@ -967,6 +991,7 @@ def main() -> None:
                         "insertion_peak_accel_m_s2": None if insertion_segment is None else insertion_segment.peak_accel_counts_s2 / pmac_cfg.pulses_per_meter,
                         "accepted_token": None if cached is None else cached.accepted,
                         "holding": watchdog_holding,
+                        "rotation_command_limited": command_filter.rotation_command_limited,
                         "command_age_ms": status["command_age_ms"],
                         "ik_converged": pvt_command.ik_result.converged,
                     }
