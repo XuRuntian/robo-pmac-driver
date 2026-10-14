@@ -41,7 +41,7 @@ class OmegaContinuumMapper:
     def __init__(
         self,
         *,
-        max_delta_xyz: tuple[float, float, float],
+        max_delta_xyz: tuple[float | None, float | None, float | None],
         deadband_m: float,
         scale_xyz: tuple[float, float, float] | None = None,
         omega_map: str | None = None,
@@ -67,7 +67,9 @@ class OmegaContinuumMapper:
 
         self.translation_config = translation_config
         self.rotation_config = rotation_config
-        self.max_delta = np.asarray(max_delta_xyz, dtype=float)
+        if len(max_delta_xyz) != 3 or any(v is not None and (not np.isfinite(v) or v < 0) for v in max_delta_xyz):
+            raise ValueError("Translation caps must be three finite non-negative values or None.")
+        self.max_delta = np.asarray([np.inf if v is None else v for v in max_delta_xyz], dtype=float)
         self.position_offset = np.asarray(position_offset_xyz, dtype=float)
         if self.position_offset.shape != (3,) or not np.all(np.isfinite(self.position_offset)):
             raise ValueError("position_offset_xyz must contain three finite values.")

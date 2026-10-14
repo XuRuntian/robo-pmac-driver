@@ -14,6 +14,8 @@ class TipCommandFilter:
             raise ValueError("update_interval_s must be positive.")
 
         self.config = config
+        self._rotation_caps = np.asarray([np.inf if v is None else v
+                                          for v in config.max_rotation_delta_rad], dtype=float)
         self.update_interval_s = float(update_interval_s)
         self._target_delta = np.zeros(3, dtype=float)
         self._applied_delta = np.zeros(3, dtype=float)
@@ -43,11 +45,11 @@ class TipCommandFilter:
             raise ValueError("Non-zero rotation commands are disabled by the robot interface config.")
         if self.config.orientation_enabled:
             self.rotation_command_limited = bool(np.any(
-                np.abs(rotation) > np.asarray(self.config.max_rotation_delta_rad, dtype=float)))
+                np.abs(rotation) > self._rotation_caps))
             rotation = np.clip(
                 rotation,
-                -np.asarray(self.config.max_rotation_delta_rad, dtype=float),
-                np.asarray(self.config.max_rotation_delta_rad, dtype=float),
+                -self._rotation_caps,
+                self._rotation_caps,
             )
         else:
             rotation.fill(0.0)
@@ -106,8 +108,8 @@ class TipCommandFilter:
         )
         self._applied_rotation = np.clip(
             self._applied_rotation + rotation_step,
-            -np.asarray(self.config.max_rotation_delta_rad, dtype=float),
-            np.asarray(self.config.max_rotation_delta_rad, dtype=float),
+            -self._rotation_caps,
+            self._rotation_caps,
         )
         return self._applied_delta.copy()
 

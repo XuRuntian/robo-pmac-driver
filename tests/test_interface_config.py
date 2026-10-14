@@ -22,7 +22,7 @@ def test_load_robot_interface_config() -> None:
     assert config.command.max_speed_m_s[0] == 0.01
     assert config.command.max_speed_m_s[1] == 0.01
     assert config.command.orientation_enabled
-    assert config.command.max_rotation_delta_rad == (0.45, 0.0, 0.45)
+    assert config.command.max_rotation_delta_rad == (None, 0.0, None)
     assert config.command.smooth_alpha == 0.5
 
 
@@ -187,3 +187,19 @@ def test_zmq_protocol_roundtrip() -> None:
         applied_action=action,
     )
     assert state_message["state"]["axis_5_pos"] == 0.005
+
+
+@pytest.mark.parametrize('name', ['robot_interface.yaml', 'robot_interface_axis5_profile_trial.yaml'])
+def test_unlimited_rotation_preserves_rate_and_disabled_ry(name):
+    cfg = load_robot_interface_config('config/'+name).command
+    filt = TipCommandFilter(cfg, .02)
+    command = dict(tip_delta_x=0.,tip_delta_y=0.,tip_delta_z=0.,
+                   tip_delta_rx=.8,tip_delta_ry=.2,tip_delta_rz=-.9)
+    filt.set_command(command)
+    assert filt.rotation_command_limited  # Ry still disabled.
+    filt.step()
+    assert 0 < filt.applied_rotation[0] <= cfg.max_angular_speed_rad_s[0]*.02
+    assert filt.applied_rotation[1] == 0
+    for _ in range(1000):
+        filt.step()
+    assert filt.applied_rotation == pytest.approx([.8,0,-.9])

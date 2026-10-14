@@ -16,7 +16,9 @@ import numpy as np
 import zmq
 
 from continuum_sdk.control.axis_mapper import ContinuumAxisMapper
+from continuum_sdk.control.rotary_target_guard import RotaryTargetGuard, RotaryTargetJump
 from continuum_sdk.control.live_diagnostic import LiveDiagnostic, diagnostic_lines
+from continuum_sdk.control.visual_state import visual_snapshot
 from continuum_sdk.control.cartesian_frame import apply_axis_transform
 from continuum_sdk.control.pvt_mapper import ContinuumPVTMapper
 from continuum_sdk.control.tip_command_filter import TipCommandFilter
@@ -51,6 +53,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bind-host", default="127.0.0.1")
     parser.add_argument("--command-port", type=int, default=5555)
     parser.add_argument("--state-port", type=int, default=5556)
+    parser.add_argument("--visual-state-port", type=int, default=0,
+                        help="Optional read-only PUB endpoint for viewers, e.g. 5557; 0 disables.")
     parser.add_argument(
         "--watchdog-timeout",
         type=float,
@@ -458,6 +462,9 @@ def _request_shutdown(signum, frame):
 
 def main() -> None:
     args = parse_args()
+    if args.visual_state_port and (not 1 <= args.visual_state_port <= 65535 or
+                                  args.visual_state_port in (args.command_port, args.state_port)):
+        raise ValueError("Visual state port must be distinct from command/state ports and in 1..65535.")
     if args.live_debug and (args.shape_debug_hz > 0 or args.motor_debug_hz > 0):
         raise ValueError("Use --live-debug without --shape-debug-hz or --motor-debug-hz to keep the display fixed.")
     if args.watchdog_timeout <= 0.0:
@@ -526,7 +533,27 @@ def main() -> None:
         axis_signs=pmac_cfg.axis_signs,
     )
 
+    rotary_guard = RotaryTargetGuard(axis_mapper, interface_cfg.rotary_target_stop_rad_s)
+    if args.return_to_reference_on_start:
+        raise ValueError("Startup return is outside the guarded teleoperation path; use capture_current.")
+    print(f"Rotary software stop threshold: {rotary_guard.threshold:g} rad/s (not a motor rating)")
+    stop_evidence = {}
+    def save_stop_evidence():
+        if not stop_evidence:
+            return
+        directory = Path(args.latency_csv).parent if args.latency_csv else Path('outputs')
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            path = directory / f"rotary_stop_{time.time_ns()}.json"
+            path.write_text(json.dumps(stop_evidence, indent=2, ensure_ascii=True), encoding='utf-8')
+            print(f"Rejected target evidence: {path}", flush=True)
+        except OSError as exc:
+            # A logging failure must not hide the original stop/cleanup failure.
+            print(f"Could not save rejected target evidence: {exc}", file=sys.stderr, flush=True)
+
     with ExitStack() as cleanup:
+        # Registered first: persist evidence AFTER controller cleanup/stop.
+        cleanup.callback(save_stop_evidence)
         wait_mode = getattr(args, "wait_mode", "system")
         cycle_sleep = time.sleep
         if wait_mode == "windows-highres":
@@ -657,6 +684,14 @@ def main() -> None:
         state_socket.setsockopt(zmq.SNDHWM, 1)
         state_socket.setsockopt(zmq.LINGER, 0)
         state_socket.bind(f"tcp://{args.bind_host}:{args.state_port}")
+        visual_socket = None
+        if args.visual_state_port:
+            visual_socket = context.socket(zmq.PUB)
+            cleanup.callback(visual_socket.close)
+            visual_socket.setsockopt(zmq.LINGER, 0)
+            visual_socket.setsockopt(zmq.SNDHWM, 1)
+            visual_socket.bind(f"tcp://{args.bind_host}:{args.visual_state_port}")
+        last_visual_feedback = time.perf_counter()
 
         last_command_time: float | None = None
         watchdog_holding = True
@@ -665,6 +700,7 @@ def main() -> None:
         feedback_valid = True
         feedback_pulses = current_pulses.copy()
         last_target_pulses = current_pulses.copy()
+        last_target_velocities = [0.0]*5
         live_debug = LiveDiagnostic(sys.stdout)
         next_live_debug = 0.0
         previous_command = None
@@ -824,6 +860,18 @@ def main() -> None:
                 applied_linear_delta = (pvt_command.target_pulses[linear_physical_idx]
                                         - last_target_pulses[linear_physical_idx])
 
+                try:
+                    rotary_peaks = rotary_guard.check(
+                        last_target_pulses, pvt_command.target_pulses,
+                        last_target_velocities, pvt_command.velocities, update_interval)
+                except RotaryTargetJump as exc:
+                    stop_evidence.update(exc.evidence)
+                    stop_evidence.update(sequence=state_sequence, execute=args.execute,
+                        ik_converged=bool(pvt_command.ik_result.converged),
+                        ik_u=pvt_command.ik_result.u.tolist(),
+                        applied_command=command_filter.applied_command())
+                    raise
+
                 if robot is not None:
                     trace_submit_start = time.perf_counter() if latency_file else None
                     robot.move_pvt_stream(
@@ -835,6 +883,7 @@ def main() -> None:
                     if now >= next_feedback:
                         trace_feedback_start = time.perf_counter() if latency_file else None
                         candidate_feedback = robot.read_positions()
+                        last_visual_feedback = time.perf_counter()
                         error_counts = getattr(robot, "last_axis5_error_abs_counts", None)
                         if interface_cfg.insertion_error_stop_m is not None and (
                                 error_counts is None or error_counts < 0 or
@@ -953,8 +1002,20 @@ def main() -> None:
                         rotation_limited=command_filter.rotation_command_limited,
                     ))
                     next_live_debug = now + .25
+                if visual_socket is not None:
+                    visual = visual_snapshot(
+                        state_sequence, [state[f'axis_{i}_pos'] for i in range(1,6)],
+                        axis_mapper.pulses_to_logical(base_pulses, pvt_command.target_pulses),
+                        tendon_mapper.model, execute=args.execute,
+                        feedback_age_s=(time.perf_counter()-last_visual_feedback if robot else 0.),
+                    )
+                    try:
+                        visual_socket.send_json(visual, flags=zmq.NOBLOCK)
+                    except zmq.Again:
+                        pass
                 state_sequence += 1
                 last_target_pulses = list(pvt_command.target_pulses)
+                last_target_velocities = list(pvt_command.velocities)
                 if latency_file is not None:
                     trace_log_start = time.perf_counter()
                     cached = getattr(getattr(robot, "protocol", None), "last_pvt_status", None)
@@ -993,6 +1054,8 @@ def main() -> None:
                         "holding": watchdog_holding,
                         "rotation_command_limited": command_filter.rotation_command_limited,
                         "command_age_ms": status["command_age_ms"],
+                        "rotary_peak_rad_s": max(rotary_peaks),
+                        "rotary_stop_threshold_rad_s": rotary_guard.threshold,
                         "ik_converged": pvt_command.ik_result.converged,
                     }
                     protocol = getattr(robot, "protocol", None)

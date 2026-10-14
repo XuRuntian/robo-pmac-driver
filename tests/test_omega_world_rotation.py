@@ -68,10 +68,10 @@ def test_default_wrist_rotation_passes_to_driver_range(math_modules):
     cfg = load_robot_interface_config(ROOT/'config/robot_interface.yaml')
     filt = TipCommandFilter(cfg.command, .02)
     filt.set_command(action)
-    assert filt.rotation_command_limited
+    assert not filt.rotation_command_limited
     for _ in range(300):
         filt.step()
-    np.testing.assert_allclose(filt.applied_rotation, [.45, 0, -.45], atol=1e-8)
+    np.testing.assert_allclose(filt.applied_rotation, [.8, 0, -.9], atol=1e-8)
     filt.hold()
     assert not filt.rotation_command_limited
 
@@ -225,3 +225,25 @@ def test_joint_diagnostic_single_line():
         assert len(text[5:]) < width and kwargs == dict(end="", flush=True)
         if width >= 80:
             assert "cmd=[+0.100,+0.000,+0.000]" in text
+
+
+def test_uncapped_translation_and_post_clutch_anchor(math_modules):
+    mapping, config = math_modules
+    mapper = mapping.OmegaContinuumMapper(
+        translation_config=config.translation, rotation_config=config.rotation,
+        max_delta_xyz=(None, None, None), deadband_m=0)
+    mapper.set_zero(np.zeros(3), np.eye(3), np.zeros(3))
+    position = np.array([.3, -.4, .5])
+    action = mapper.map_pose(position, np.eye(3), np.zeros(3))
+    expected = np.array([-.4, -.3, .5]) * np.array(config.translation.gain)
+    np.testing.assert_allclose([action['tip_delta_'+k] for k in 'xyz'], expected)
+    source = ast.parse((PLUGIN/'omega_continuum.py').read_text(encoding='utf-8'))
+    cls = next(n for n in source.body if isinstance(n, ast.ClassDef) and n.name=='OmegaContinuum')
+    fn = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name=='_clip_action')
+    env = dict(np=np)
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), 'clip_only', 'exec'), env)
+    cfg = SimpleNamespace(max_delta_x=None, max_delta_y=None, max_delta_z=None,
+                          max_rotation_x=None, max_rotation_y=0., max_rotation_z=None)
+    value = np.array([.1, -.2, .3, .8, .4, -.9])
+    np.testing.assert_allclose(env['_clip_action'](SimpleNamespace(config=cfg),value),
+                              [.1,-.2,.3,.8,0,-.9])

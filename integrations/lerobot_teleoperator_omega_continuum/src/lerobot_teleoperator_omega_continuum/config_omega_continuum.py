@@ -19,9 +19,9 @@ class OmegaContinuumConfig(TeleoperatorConfig):
     position_offset_x: float = 0.0
     position_offset_y: float = 0.0
     position_offset_z: float = 0.0
-    max_delta_x: float = 0.03
-    max_delta_y: float = 0.01
-    max_delta_z: float = 0.03
+    max_delta_x: float | None = None
+    max_delta_y: float | None = None
+    max_delta_z: float | None = None
     deadband_m: float = 0.0003
     rotation_scale_x: float | None = None
     # External/world Ry maps to disabled continuum Rz; world Rz maps to
@@ -56,8 +56,9 @@ class OmegaContinuumConfig(TeleoperatorConfig):
             for value in (self.position_offset_x, self.position_offset_y, self.position_offset_z)
         ):
             raise ValueError("position offsets must be finite.")
-        if any(value < 0.0 for value in (self.max_delta_x, self.max_delta_y, self.max_delta_z)):
-            raise ValueError("Omega maximum deltas must be non-negative.")
+        if any(value is not None and (not np.isfinite(value) or value < 0.0)
+               for value in (self.max_delta_x, self.max_delta_y, self.max_delta_z)):
+            raise ValueError("Omega maximum deltas must be finite and non-negative, or None.")
         if self.deadband_m < 0.0:
             raise ValueError("deadband_m must be non-negative.")
         if any(

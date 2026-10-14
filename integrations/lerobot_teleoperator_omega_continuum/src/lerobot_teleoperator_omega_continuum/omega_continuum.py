@@ -277,9 +277,9 @@ class OmegaContinuum(Teleoperator):
     def _clip_action(self, action: np.ndarray) -> np.ndarray:
         limits = np.asarray(
             [
-                self.config.max_delta_x,
-                self.config.max_delta_y,
-                self.config.max_delta_z,
+                np.inf if self.config.max_delta_x is None else self.config.max_delta_x,
+                np.inf if self.config.max_delta_y is None else self.config.max_delta_y,
+                np.inf if self.config.max_delta_z is None else self.config.max_delta_z,
                 np.inf if self.config.max_rotation_x is None else self.config.max_rotation_x,
                 np.inf if self.config.max_rotation_y is None else self.config.max_rotation_y,
                 np.inf if self.config.max_rotation_z is None else self.config.max_rotation_z,

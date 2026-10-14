@@ -21,11 +21,17 @@ def test_trace_dry_run_keeps_feedback_unknown_and_records_hold(tmp_path, monkeyp
     if wait_mode == "windows-highres" and sys.platform != "win32":
         pytest.skip("Native high resolution backend requires Windows")
     path = tmp_path / "trace.csv"
+    # Exercise the optional independent publisher with no consumers attached.
+    import socket
+    with socket.socket() as probe:
+        probe.bind(('127.0.0.1',0))
+        visual_port=probe.getsockname()[1]
     monkeypatch.chdir(ROOT)
     monkeypatch.setattr(sys, "argv", ["driver", "--latency-csv", str(path),
                                       "--command-port", "0", "--state-port", "0", "--wait-mode", wait_mode]
                         + (["--execute"] if mock_execute else [])
                         + (["--live-debug"] if live_debug else [])
+                        + (["--visual-state-port", str(visual_port)] if live_debug else [])
                         + (["--interface-config", "config/robot_interface_axis5_profile_trial.yaml"] if profile_trial else []))
     def forbidden(*args, **kwargs):
         raise AssertionError("Dry-run must not construct a hardware controller")
@@ -86,3 +92,36 @@ def test_trace_dry_run_keeps_feedback_unknown_and_records_hold(tmp_path, monkeyp
     # Existing data is rejected before any controller creation or motion.
     with pytest.raises(FileExistsError):
         server.main()
+
+
+def test_rotary_jump_is_never_submitted_and_cleanup_precedes_evidence(tmp_path, monkeypatch):
+    monkeypatch.chdir(ROOT)
+    monkeypatch.setattr(sys,'argv',['driver','--execute','--latency-csv',str(tmp_path/'trace.csv'),
+        '--command-port','0','--state-port','0'])
+    calls=[]
+    positions=[1000,2000,3000,4000,1000000]
+    fake=SimpleNamespace(base_positions=positions,pvt_axis5_max_step=3000,
+        safe_boot_and_home=lambda:None,close=lambda:calls.append('close'),
+        move_pvt_stream=lambda **kw:calls.append('submit'),
+        protocol=SimpleNamespace())
+    monkeypatch.setattr(server,'PMACRobotController',lambda _:fake)
+    monkeypatch.setattr(server,'_latest_message',lambda _:None)
+    original=server.ContinuumPVTMapper.build_command
+    def corrupt(self,*args,**kwargs):
+        result=original(self,*args,**kwargs)
+        result.target_pulses[1]+=1000000
+        return result
+    monkeypatch.setattr(server.ContinuumPVTMapper,'build_command',corrupt)
+    original_write=Path.write_text
+    def observe_write(path,*args,**kwargs):
+        if path.name.startswith('rotary_stop_'):
+            assert calls==['close']
+        return original_write(path,*args,**kwargs)
+    monkeypatch.setattr(Path,'write_text',observe_write)
+    with pytest.raises(server.RotaryTargetJump,match='Candidate not submitted'):
+        server.main()
+    assert calls==['close']
+    evidence=json.loads(next(tmp_path.glob('rotary_stop_*.json')).read_text())
+    assert evidence['physical_axis']==2
+    assert evidence['sequence']==0
+    assert evidence['execute'] is True

@@ -269,3 +269,94 @@ roll `Rz`.
 
 The ZMQ PUSH/PULL transport intentionally supports one active LeRobot robot
 client. PMAC ownership must remain exclusive to the driver service.
+
+## Read-only MuJoCo visual comparison
+
+The optional visual mirror uses a separate PUB/SUB port (5557). It does not
+consume LeRobot's state port (5556), send commands, initialize Omega, or connect
+to PMAC. The driver remains the sole hardware owner. Start the driver with the
+current trial configuration and the additional visual endpoint (Git Bash):
+
+```bash
+cd /d/project/surgical_continuum_robot/robo-pmac-driver
+uv run python apps/continuum_driver_server.py \
+  --interface-config config/robot_interface_axis5_profile_trial.yaml \
+  --wait-mode windows-highres --live-debug \
+  --visual-state-port 5557 --execute
+```
+
+Keep the existing Omega/LeRobot command in its own terminal. In another terminal:
+
+```bash
+cd /d/project/surgical_continuum_robot/robo-pmac-driver
+uv run --with mujoco python apps/view_robot_mujoco.py
+```
+
+The default model is the horizontal robot on a plane from the sibling project's
+`surgical_continuum_robot/model/continuum_robot/mjcf/scene_main.xml`.
+Use `--xml PATH` to select another copy with the same fixed tendon joint layout.
+The sibling project's code and assets are not modified.
+
+The default `--source target` shows the current PVT target after the driver's
+execution limits, so the visual robot follows the same command as the real robot.
+Use `--source feedback` to display encoder-derived joint parameters using
+the driver's calibrated motor model and axis mapping. These are
+distinct from raw Omega commands. Multiple viewers may subscribe simultaneously.
+Without `--execute`, the driver publishes a dry-run model state, not encoders.
+
+The viewer distributes bending over the model's discrete hinge joints and
+updates geometry directly. It does not integrate dynamics, simulate contacts,
+or execute actuator control. This is a geometric comparison, not measured shape
+or proof of dynamic tracking: tendon slack, compliance and calibration errors
+can still make the real robot differ. The current trial uses `use_sheath=false`;
+this viewer does not implement changing sheath constraints.
+
+Rendering defaults to 30 FPS independently of the 50 Hz driver. Use `--fps 20`
+if graphics load is excessive; camera rotation and zoom remain interactive.
+Only the latest received state is retained. Missing input or encoder data older
+than 0.5 s freezes the last pose and prints a status change in the terminal;
+`--stale-s` adjusts this threshold. Closing the viewer does not stop the robot.
+No viewer is required when running the driver without `--visual-state-port`.
+
+
+## Current input range policy
+
+Omega translation defaults (`max_delta_x/y/z`) are now `None`: the plugin
+applies mapping, gain, deadband and clutch anchoring without translation caps.
+Optional explicit CLI caps remain supported for older workflows.
+Both `robot_interface.yaml` and `robot_interface_axis5_profile_trial.yaml` use
+`max_rotation_delta_rad: [null, 0.0, null]`: Rx/Rz have no command magnitude cap,
+while Ry remains disabled. This supersedes the historical 0.45 rad values above.
+Driver translation bounds, angular/linear rate limits, IK geometric bounds and
+axis-5 execution protection remain active. Unreachable goals can still saturate
+IK; removing an input cap does not enlarge the mechanical workspace.
+Restart both driver and LeRobot to load these changes.
+
+## Rotary target anomaly stop
+
+Both current interface configurations explicitly set
+`execution.rotary_target_stop_rad_s: 2.5`. This is a provisional software anomaly
+threshold in logical/output-equivalent motor radians per second, not a measured
+motor rating, tool bend rate or validated safe speed. Do not automatically raise
+it to avoid a trip. Missing/nonpositive/nonfinite values are rejected before
+hardware connection. Legacy startup return is rejected because it bypasses this
+teleoperation guard; use capture_current.
+
+Before each PVT submit, the driver checks the peak rotary speed of the complete
+cubic segment, including both endpoint velocities with the protocol's velocity
+quantization. It uses ContinuumAxisMapper to preserve axis order/signs. Normal
+segments are unchanged: no extra smoothing, target backlog or altered IK weights.
+A trip rejects the whole five-axis candidate and raises `ROTARY TARGET STOP`.
+The session exits through the existing controller cleanup/abort path; no automatic
+resume or return-to-zero occurs. Abort delivery and physical stop dynamics depend
+on controller/transport behavior and have not been newly hardware-validated.
+Previously queued motion is not retroactively undone. This is not a jerk- or
+acceleration-bounded deceleration planner, and below-threshold behavior is not
+certified safe by this check.
+
+Latency CSV adds `rotary_peak_rad_s` and `rotary_stop_threshold_rad_s`. Rejected
+segments are not represented as submitted rows. After controller cleanup, a unique
+`rotary_stop_<timestamp>.json` is saved beside the latency CSV (or in outputs if
+CSV logging is off). It contains the sequence, affected physical/logical axis,
+previous/rejected positions and velocities, computed peaks, IK result and applied
+command. Retain it together with the CSV when a stop occurs.

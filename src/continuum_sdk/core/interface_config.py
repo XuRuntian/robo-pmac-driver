@@ -71,7 +71,7 @@ class CartesianCommandConfig:
     max_delta_m: tuple[float, float, float]
     max_speed_m_s: tuple[float, float, float]
     orientation_enabled: bool
-    max_rotation_delta_rad: tuple[float, float, float]
+    max_rotation_delta_rad: tuple[float | None, float | None, float | None]
     max_angular_speed_rad_s: tuple[float, float, float]
     deadband_m: float
     smooth_alpha: float
@@ -96,6 +96,7 @@ class RobotInterfaceConfig:
     insertion_max_speed_m_s: float | None = None
     insertion_max_accel_m_s2: float | None = None
     insertion_error_stop_m: float | None = None
+    rotary_target_stop_rad_s: float | None = None
 
     def insertion_step_limit(self, pulses_per_meter: float, dt_s: float,
                              controller_max_step: int | None = None) -> float:
@@ -156,7 +157,7 @@ def load_robot_interface_config(
         max_speed_m_s=tuple(float(value) for value in command_raw["max_speed_m_s"]),
         orientation_enabled=bool(command_raw.get("orientation_enabled", False)),
         max_rotation_delta_rad=tuple(
-            float(value) for value in command_raw.get("max_rotation_delta_rad", (0.0, 0.0, 0.0))
+            None if value is None else float(value) for value in command_raw.get("max_rotation_delta_rad", (0.0, 0.0, 0.0))
         ),
         max_angular_speed_rad_s=tuple(
             float(value) for value in command_raw.get("max_angular_speed_rad_s", (0.0, 0.0, 0.0))
@@ -182,12 +183,13 @@ def load_robot_interface_config(
         raise ValueError("max_delta_m values must be non-negative.")
     if any(value < 0.0 for value in command.max_speed_m_s):
         raise ValueError("max_speed_m_s values must be non-negative.")
-    if any(value < 0.0 for value in command.max_rotation_delta_rad):
-        raise ValueError("max_rotation_delta_rad values must be non-negative.")
+    if any(value is not None and (not math.isfinite(value) or value < 0.0)
+           for value in command.max_rotation_delta_rad):
+        raise ValueError("max_rotation_delta_rad values must be finite and non-negative, or null.")
     if any(value < 0.0 for value in command.max_angular_speed_rad_s):
         raise ValueError("max_angular_speed_rad_s values must be non-negative.")
     if command.orientation_enabled and (
-        not any(command.max_rotation_delta_rad)
+        not any(value is None or value > 0 for value in command.max_rotation_delta_rad)
         or not any(command.max_angular_speed_rad_s)
     ):
         raise ValueError(
@@ -221,6 +223,10 @@ def load_robot_interface_config(
     insertion_error = None if error_raw is None else float(error_raw)
     if insertion_error is not None and (not math.isfinite(insertion_error) or insertion_error <= 0):
         raise ValueError('execution.insertion_error_stop_m must be finite and positive.')
+    rotary_raw = execution_raw.get("rotary_target_stop_rad_s")
+    rotary_stop = None if rotary_raw is None else float(rotary_raw)
+    if rotary_stop is not None and (not math.isfinite(rotary_stop) or rotary_stop <= 0):
+        raise ValueError('execution.rotary_target_stop_rad_s must be finite and positive.')
     return RobotInterfaceConfig(
         control_hz=int(raw["control_hz"]),
         frame=frame,
@@ -229,4 +235,5 @@ def load_robot_interface_config(
         insertion_max_speed_m_s=insertion_speed,
         insertion_max_accel_m_s2=insertion_accel,
         insertion_error_stop_m=insertion_error,
+        rotary_target_stop_rad_s=rotary_stop,
     )

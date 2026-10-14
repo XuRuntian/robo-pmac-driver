@@ -41,6 +41,9 @@ initial_position:
   tolerance_pulses: null
 
 execution:
+  # Software anomaly stop, NOT a validated motor speed capability.
+  # Checks rotary PVT cubic peak before submission; trip ends the session.
+  rotary_target_stop_rad_s: 2.5
   # Logical insertion d speed budget, independent of WORLD X/Y/Z.
   # Candidate retained after short-motion and repeated-reversal trials.
   # Execution generates acceleration-bounded PVT segments; PMAC guards are separate.
@@ -60,9 +63,9 @@ command:
   orientation_enabled: true
   # External/world rotations: Rx and Rz are enabled; Ry maps to the
   # continuum tool-axis roll and is disabled.
-  # Centralized command range: preserve the previous effective Omega envelope.
-  # This is a command cap, not a guarantee that every pose is reachable.
-  max_rotation_delta_rad: [0.45, 0.0, 0.45]
+  # null removes the Rx/Rz command cap; 0 keeps Ry disabled.
+  # IK geometry and execution limits remain; not every requested pose is reachable.
+  max_rotation_delta_rad: [null, 0.0, null]
   max_angular_speed_rad_s: [0.5, 0.0, 0.5]
 
   deadband_m: 0.0003

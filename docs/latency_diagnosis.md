@@ -471,3 +471,156 @@ uv run python apps/test_axis5_response.py \
 高档最大采样误差距 0.05 mm 阈值仅约 0.00308 mm。高档匀速段也由 0.52 s 延长到 2.50 s；按主机时间取匀速段内部窗口，仍有约 0.047 mm 误差，因此不能将误差增加全部归因于加速度。窗口不是控制器同步阶段判定。反馈约 10 Hz，不能排除采样间更大的误差，也不能将提交结束到首次到位反馈的约 0.1 s 解释为精确伺服停稳时间。
 
 后续保持 50 Hz，先用更高加减速度候选值复核已有 Omega 记录的离线轨迹与协调误差，通过后再进行小范围实机对照；本轮不修改默认配置、不放宽跟随误差阈值。16:37 只读快照中的 Axis5_MaxStep 为临时测试值 6500，普通遥操作启动前必须重新核对预算，不能假设已恢复默认 3000。
+
+## 2026-10-14: separate IK differentiation from execution policy
+
+Responsibilities agreed for the current chain:
+- Omega/LeRobot: master sampling, clutch/reference, frame mapping, gains and deadband.
+- IK: position/tool-axis task, geometric feasibility, convergence/error reporting.
+  Geometry derivatives must not differentiate a coupled limit projection as if
+  only one coordinate changed. Solver candidate projection still enforces limits.
+- Python driver: command lifetime, acceptance of solver output, executable motor
+  trajectories and feedback monitoring. Smooth Cartesian input alone is insufficient.
+- PMAC: PVT interpolation/servo execution and local fault/watchdog protection.
+  Existing protection is retained; hard limit inputs are a separate future task.
+
+The local IK change extracts private bending geometry for finite-difference probes.
+Public FK, candidate clipping, DLS damping/weights, line search, task definition,
+actuator calibration and PMAC parameters remain unchanged. Insertion probes remain
+within their interval; sheath insertion geometry remains piecewise as before.
+This is a derivative correction, not a trajectory acceptance policy.
+
+Offline replay: `outputs/teleop_news_01.csv`, 4403 cycles, using recorded applied
+WORLD commands/holding flags and embedded YAML; initial axis 1-4 reference inferred
+from the first target, axis 5 zero from this run's configuration. Pulse scales use
+current local constants because the old CSV does not embed them. The old solver
+(HEAD at time of replay) with insertion profiling reproduces all five target pulse
+columns exactly. The fixed replay propagates its own accepted target warm-start
+and insertion profile; it does not reset to recorded targets at every cycle.
+
+Maximum per-cycle output-equivalent rotation step in physical axes 1..4 (rad):
+- Old: 0.1225725, 0.3530784, 0.1194985, 0.2573553.
+- Fixed: 0.0433003, 0.0324586, 0.0330998, 0.1037553.
+Active nonconverged cycles: old 1789/4063, fixed 1767/4063.
+P95 solver position residual: old 39.735 mm, fixed 45.282 mm. These are solver
+residuals before insertion profiling, not measured mechanical error. The derivative
+fix reduces the largest jump but does not guarantee tracking or executable speed.
+Replay is deterministic software evidence, not simulated PMAC or hardware validation.
+
+Still outstanding: define/test solver-result acceptance and coordinated motor
+trajectory continuity using validated axis capabilities. Do not interpret the
+remaining ~5.95 degree single-cycle target change as a safe hardware allowance.
+No new motor thresholds or per-axis clipping were added in this change.
+Replay details/scripts are in `outputs/teleop_news_01_analysis/`.
+
+## 2026-10-14: iteration budget study (fixed initial state per sample)
+
+Using the corrected Jacobian, each of 4063 non-holding samples starts from the
+same previous recorded motor target for all budgets. The recorded filtered
+WORLD target remains fixed during each solve. Checkpoints at 8/16/32/64 steps
+preserve normal early convergence. This is a per-sample comparison, not the
+self-propagating trajectory replay above; motor-step maxima must not be compared
+between those two protocols as if they measured the same trajectory.
+
+| Iteration budget | Converged | Solver time P95 (ms) | Position residual P95 (mm) |
+| --- | --- | --- | --- |
+| 8 | 2296/4063 (56.51%) | 7.96 | 39.166 |
+| 16 | 2296/4063 (56.51%) | 15.20 | 39.165 |
+| 32 | 2296/4063 (56.51%) | 30.17 | 39.163 |
+| 64 | 2296/4063 (56.51%) | 60.00 | 39.103 |
+
+No sample gained convergence at 64 versus 8. Timing sums actual step computation,
+excludes communication, logging, state broadcast and other driver work, and is
+one local measurement rather than a hardware scheduling guarantee. Weighted
+position norm must be <=0.0002 and weighted direction norm <=0.001. Direction
+weight is 0.8: the recorded criterion is not an unweighted angle tolerance.
+
+Fixed-target cases at 26.74, 27.62 and 31.72 seconds each used 8 seeds (recorded,
+straight at the recorded insertion, six deterministic random feasible seeds)
+and up to 512 iterations without execution profiling. None converged. Best final
+position residuals across these seeds were 39.13, 27.99 and 27.33 mm respectively.
+This rules against simply increasing the budget as the next fix for these cases;
+it does not prove global infeasibility. Position/direction compatibility, objective
+scaling and constrained-solver behavior need independent investigation.
+
+No runtime budget, weights, thresholds or PMAC parameters were changed. Scripts
+and detailed results: `outputs/teleop_news_01_analysis/iteration_study.py` and
+`iteration_study.json`. Original source CSV was not modified.
+
+## 2026-10-14: independent bounded feasibility audit
+
+Three recorded filtered targets (26.74, 27.62, 31.72 s) were checked with SciPy
+bounded trust-region reflective least squares, independent of DLS/its projection
+and finite-difference implementation. FK/geometry deliberately remain the same
+model. Variables are [d,theta_a,phi_a,theta_c,phi_c]; the recorded no-sheath bounds
+are d in [0,.255], theta_a in [0,pi], theta_c in [0,pi/2]. Phi search [-2pi,2pi]
+covers full periodic directions. Each task uses 12 starts, at most 1500 function
+evaluations, 3-point differences, and variable scaling. First use residuals
+normalized by the existing convergence tolerances; repeat the combined problem
+with the original task weights. Optimizer success is NOT counted as robot-task
+convergence: both separate residual norms must meet the configured tolerances.
+
+For every target, position-only and direction-only each pass 12/12 starts;
+combined tasks pass 0/12 under both weighting choices. Best normalized-objective
+combined results (position mm / direction angle deg):
+- 26.74 s: 6.935 / 0.2603.
+- 27.62 s: 19.254 / 0.8227.
+- 31.72 s: 18.358 / 0.7857.
+
+With the original weights, direction meets its threshold but position does not:
+7.008, 19.517, 18.609 mm respectively. These best solutions reach theta_a=pi.
+The independent optimizer finds smaller residuals than the current DLS on these
+cases, so constrained solver strategy also matters; do not attribute all error
+solely to global infeasibility or operator speed. A generated reachable target
+was recovered from 5/12 random starts, illustrating that local minima still
+exist in the independent method. No numerical failure here proves global
+infeasibility. FK is shared, so this is not independent model calibration.
+
+Execution-policy direction (not deployed):
+- IK reports feasible candidate, residuals and constraint activity; no direct
+  motion authorization merely because a solve terminates.
+- Driver must qualify candidate progress and generate a continuous executable
+  transition. Rejecting every nonconverged intermediate result can freeze useful
+  approach motion; accepting all such results can allow large jumps.
+- Retain last accepted reference, report held/limited reasons, and avoid storing
+  a queue of obsolete master targets. No automatic return to zero on rejection.
+- Do not add arbitrary axis 1-4 speed/acceleration caps from this recording;
+  validated per-axis capabilities are not yet available as execution config.
+  Any future time scaling/trajectory generation must account for all axes and
+  PVT velocity endpoints, rather than independently clipping axis positions.
+- PMAC remains responsible for local following-error/watchdog/fault protection.
+
+This turn only added offline evidence and policy documentation. Runtime solver,
+master mapping, execution profile and PMAC parameters were not modified.
+Artifacts: feasibility.py/json, feasibility_original_weights.py/json and
+feasibility_control.json under outputs/teleop_news_01_analysis/.
+
+## 2026-10-14: rotary anomaly guard, fail-stop scope
+
+User chose detection + session stop, postponing continuous trajectory shaping
+until rotary capabilities are validated. `RotaryTargetGuard` checks the cubic PVT
+velocity maximum in all four logical rotary axes before any candidate submission,
+using physical-to-logical mapping and wire-quantized endpoint velocities. It does
+not use IK convergence as a stop condition, mutate accepted targets, or relax
+geometric bounds. A trip aborts the session through existing controller cleanup;
+unique JSON evidence is written after cleanup. Unit/integration tests verify a
+rejected candidate is never submitted and cleanup precedes evidence persistence.
+
+Provisional anomaly threshold is 2.5 rad/s. At 20 ms, average motion at this value
+would be 0.05 rad (2.86 deg); the actual check uses the cubic peak, not just this
+endpoint difference. This is an application anomaly threshold selected for this
+recording, not motor capability calibration or a guaranteed safe speed.
+
+Shadow replay (continues calculating after a hypothetical trip for analysis):
+- Original trace: trips at 27.620, 27.640, 31.720, 31.740, 58.242 s.
+  The major peak values are 17.157 and 23.539 rad/s at the two diagnosed events.
+- Corrected IK, self-propagating replay: trips at 31.340, 31.360, 40.800 s,
+  with peaks 6.917, 5.188, 2.590 rad/s.
+- In a real run the first trip ends the session; later shadow events do not
+  represent events that would actually be submitted afterward.
+Other segments in this recording pass without modification; this does not prove
+all ordinary operation is unaffected. No extra latency filter was introduced.
+
+Scope limits: cubic peak velocity only; no validated rotary acceleration/jerk
+bounds, no automatic deceleration planner, no guarantee of physical stop timing.
+Existing local PMAC protection remains. Hardware verification is outstanding.
