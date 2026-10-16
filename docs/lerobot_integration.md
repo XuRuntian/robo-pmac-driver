@@ -297,6 +297,17 @@ The default model is the horizontal robot on a plane from the sibling project's
 Use `--xml PATH` to select another copy with the same fixed tendon joint layout.
 The sibling project's code and assets are not modified.
 
+The default `--view wide` uses a 135-degree azimuth and -25-degree elevation,
+with center [0, 0.32, 0.13] m and distance 0.70 m, showing the arm together with
+the drive housing and platform. `--view tip` uses a fixed close-up of the bending
+sections: camera
+center [0, 0.49, 0.207] m, distance 0.24 m, azimuth 135 degrees, elevation -25
+degrees. `--view overview` restores the full-machine framing. These presets
+change only the camera, not input mappings or model motion. Both wide and tip were
+checked with offscreen renders of straight, two bending directions and a
+reverse bend with 40 mm insertion; it is not a full-workspace framing guarantee.
+The custom XML option may need manual camera adjustment for other model layouts.
+
 The default `--source target` shows the current PVT target after the driver's
 execution limits, so the visual robot follows the same command as the real robot.
 Use `--source feedback` to display encoder-derived joint parameters using
@@ -311,12 +322,33 @@ or proof of dynamic tracking: tendon slack, compliance and calibration errors
 can still make the real robot differ. The current trial uses `use_sheath=false`;
 this viewer does not implement changing sheath constraints.
 
-Rendering defaults to 30 FPS independently of the 50 Hz driver. Use `--fps 20`
+Rendering requests 60 FPS by default independently of the 50 Hz driver. Actual
+refresh depends on graphics load and OS scheduling; target poses arrive at 50 Hz,
+and fresh encoder poses normally arrive at about 10 Hz. This viewer does not add
+pose interpolation or a smoothing buffer. Use `--fps 20`
 if graphics load is excessive; camera rotation and zoom remain interactive.
 Only the latest received state is retained. Missing input or encoder data older
 than 0.5 s freezes the last pose and prints a status change in the terminal;
 `--stale-s` adjusts this threshold. Closing the viewer does not stop the robot.
 No viewer is required when running the driver without `--visual-state-port`.
+
+### Direction alignment, one axis at a time
+
+The operator confirmed master-to-hardware forward/back and left/right motion
+agree. Preserve that control mapping; remaining alignment concerns the MuJoCo
+view/model. Use a fixed viewing position and describe robot motion in
+physical directions (right, insertion, up), not only screen directions. Compare
+one positive and one negative translation at a time: X, then Y, then Z; only
+after those agree compare Rx and Rz. World Ry remains disabled.
+
+For each trial record the master direction, driver applied command axis/sign,
+physical tip direction and MuJoCo tip direction. If the master's direction and
+applied command disagree, inspect the master mapping. If the physical and visual
+robots disagree for the same command, inspect model/display calibration before
+changing the shared input mapping. A camera rotation alone is not evidence for
+reversing a motor sign. Modify only the identified mapping component and repeat
+both signs before continuing to the next axis. Physical PMAC axis order/signs
+and the validated actuation dimensions are not tuning knobs for this procedure.
 
 
 ## Current input range policy
