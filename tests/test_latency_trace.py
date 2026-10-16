@@ -15,7 +15,7 @@ spec.loader.exec_module(server)
 
 @pytest.mark.parametrize("mock_execute", [False, True])
 @pytest.mark.parametrize("wait_mode", ["system", "windows-highres"])
-@pytest.mark.parametrize("profile_trial", [False, True])
+@pytest.mark.parametrize("profile_trial", [False, True, 'stop_priority'])
 @pytest.mark.parametrize("live_debug", [False, True])
 def test_trace_dry_run_keeps_feedback_unknown_and_records_hold(tmp_path, monkeypatch, mock_execute, wait_mode, profile_trial, live_debug):
     if wait_mode == "windows-highres" and sys.platform != "win32":
@@ -32,7 +32,8 @@ def test_trace_dry_run_keeps_feedback_unknown_and_records_hold(tmp_path, monkeyp
                         + (["--execute"] if mock_execute else [])
                         + (["--live-debug"] if live_debug else [])
                         + (["--visual-state-port", str(visual_port)] if live_debug else [])
-                        + (["--interface-config", "config/robot_interface_axis5_profile_trial.yaml"] if profile_trial else []))
+                        + (["--interface-config", "config/robot_interface_stop_priority_trial.yaml" if profile_trial == 'stop_priority'
+                            else "config/robot_interface_axis5_profile_trial.yaml"] if profile_trial else []))
     def forbidden(*args, **kwargs):
         raise AssertionError("Dry-run must not construct a hardware controller")
     positions = [1000, 2000, 3000, 4000, 1000000]
@@ -86,12 +87,52 @@ def test_trace_dry_run_keeps_feedback_unknown_and_records_hold(tmp_path, monkeyp
         assert all(r["feedback_p1"] == "" and r["queued_at_ack"] == "" for r in rows)
         assert all(r["feedback_new"] == "False" for r in rows)
     assert float(rows[0]["raw_tip_delta_x"]) == .001
-    assert 0 < float(rows[0]["applied_tip_delta_x"]) < .001
+    if profile_trial == 'stop_priority':
+        assert rows[0]['input_holding'] == 'True'
+        assert float(rows[0]['applied_tip_delta_x']) == pytest.approx(0., abs=1e-8)
+    else:
+        assert 0 < float(rows[0]["applied_tip_delta_x"]) < .001
     assert rows[2]["holding"] == "True"
     assert rows[2]["target_p1"] == rows[3]["target_p1"]
     # Existing data is rejected before any controller creation or motion.
     with pytest.raises(FileExistsError):
         server.main()
+
+
+def test_stop_priority_driver_cancels_static_input_and_reanchors_on_resume(tmp_path, monkeypatch):
+    """Run the actual loop with hardware construction forbidden, in dry-run."""
+    monkeypatch.chdir(ROOT)
+    path=tmp_path/'stop_trace.csv'
+    monkeypatch.setattr(sys,'argv',['driver','--interface-config','config/robot_interface_stop_priority_trial.yaml',
+        '--command-port','0','--state-port','0','--latency-csv',str(path)])
+    def forbidden(*args,**kwargs):
+        raise AssertionError('No hardware in stop-priority integration test')
+    monkeypatch.setattr(server,'PMACRobotController',forbidden)
+    # Avoid wall-clock waiting; watchdog sees fresh commands on every cycle.
+    monkeypatch.setattr(server.time,'sleep',lambda _:None)
+    commands=[]
+    for i in range(110):
+        action={'tip_delta_'+k:0. for k in ['x','y','z','rx','ry','rz']}
+        action['tip_delta_y']=min(i,30)*.0001
+        if i>=100:action['tip_delta_y']+=(i-99)*.0001
+        commands.append(dict(protocol_version=1,kind='command',action=action))
+    messages=iter(commands)
+    def receive(_):
+        try:return next(messages)
+        except StopIteration:raise KeyboardInterrupt
+    monkeypatch.setattr(server,'_latest_message',receive)
+    server.main()
+    with path.open(encoding='utf-8') as f:
+        next(f);rows=list(csv.DictReader(f))
+    assert all(r['input_holding']=='True' for r in rows[36:100])
+    assert all(r['watchdog_holding']=='False' for r in rows)
+    assert all(r['input_holding']=='False' for r in rows[100:])
+    for axis in range(1,6):
+        assert len({r[f'target_p{axis}'] for r in rows[90:100]})==1
+    # Restart continues from committed pose, not the unexecuted original offset.
+    for row in rows[100:]:
+        assert float(row['rotary_peak_rad_s'])<=2.5
+        assert float(row['insertion_peak_accel_m_s2'])<=.005+1e-10
 
 
 def test_rotary_jump_is_never_submitted_and_cleanup_precedes_evidence(tmp_path, monkeypatch):

@@ -22,6 +22,7 @@ from continuum_sdk.control.visual_state import visual_snapshot
 from continuum_sdk.control.cartesian_frame import apply_axis_transform
 from continuum_sdk.control.pvt_mapper import ContinuumPVTMapper
 from continuum_sdk.control.tip_command_filter import TipCommandFilter
+from continuum_sdk.control.stop_priority_filter import StopPriorityCommandFilter
 from continuum_sdk.control.ik_limit_monitor import IKLimitMonitor
 from continuum_sdk.control.insertion_profile import InsertionProfile
 from continuum_sdk.core.config_loader import load_continuum_config
@@ -642,7 +643,8 @@ def main() -> None:
             update_interval_s=update_interval,
             max_inner_steps=continuum_cfg.ik.max_inner_steps,
         )
-        command_filter = TipCommandFilter(interface_cfg.command, update_interval)
+        filter_type = StopPriorityCommandFilter if interface_cfg.command.stop_priority else TipCommandFilter
+        command_filter = filter_type(interface_cfg.command, update_interval)
         # Seed from the actual encoder pose before forming relative WORLD goals.
         pvt_mapper.commit_pulses(current_pulses)
         center_p, center_r = ik.fk_tip()
@@ -794,6 +796,8 @@ def main() -> None:
 
                 trace_prepare_start = time.perf_counter() if latency_file else 0.0
                 applied_delta = command_filter.step()
+                input_holding = getattr(command_filter, 'input_holding', False)
+                execution_holding = watchdog_holding or input_holding
                 applied_rotation = apply_axis_transform(
                     command_filter.applied_rotation,
                     interface_cfg.frame.rotation_map,
@@ -806,7 +810,7 @@ def main() -> None:
                 )
                 trace_map_start = time.perf_counter() if latency_file else 0.0
                 diagnostic_previous_u = ik.u.copy() if args.live_debug else None
-                if watchdog_holding and previous_command is not None:
+                if execution_holding and previous_command is not None:
                     pvt_command = replace(
                         previous_command,
                         target_pulses=list(last_target_pulses),
@@ -827,7 +831,7 @@ def main() -> None:
                 # Inspect the IK solution before PMAC pulse clipping / feedback
                 # warm-start modifies it. These are model joint limits only.
                 ik_limit_message = ik_limit_monitor.update(
-                    None if watchdog_holding else pvt_command.ik_result, now,
+                    None if execution_holding else pvt_command.ik_result, now,
                 )
                 if ik_limit_message is not None and not args.live_debug:
                     print(ik_limit_message, flush=True)
@@ -849,7 +853,7 @@ def main() -> None:
                 if insertion_profile is not None:
                     insertion_segment = insertion_profile.step(
                         pvt_command.target_pulses[linear_physical_idx],
-                        holding=watchdog_holding or args.lock_linear_axis,
+                        holding=execution_holding or args.lock_linear_axis,
                     )
                     pvt_command.target_pulses[linear_physical_idx] = insertion_segment.position
                     pvt_command.velocities[linear_physical_idx] = insertion_segment.velocity_counts_ms
@@ -902,7 +906,10 @@ def main() -> None:
                     feedback_pulses = list(pvt_command.target_pulses)
 
                 pvt_mapper.commit_pulses(pvt_command.target_pulses)
-                commanded_tip, _ = ik.fk_tip()
+                commanded_tip, commanded_rotation = ik.fk_tip()
+                if isinstance(command_filter, StopPriorityCommandFilter) and execution_holding:
+                    command_filter.reanchor_from_tip(commanded_tip, commanded_rotation,
+                                                     center_p, center_r, interface_cfg.frame)
                 previous_command = pvt_command
                 state = _state_from_feedback(axis_mapper, base_pulses, feedback_pulses)
                 ik_error = pvt_command.ik_result.error
@@ -911,6 +918,9 @@ def main() -> None:
                     "execute": args.execute,
                     "control_hz": update_hz,
                     "watchdog_holding": watchdog_holding,
+                    "input_holding": input_holding,
+                    "execution_holding": execution_holding,
+                    "input_discarded": getattr(command_filter, 'input_discarded', False),
                     "command_age_ms": (
                         None if command_age_s is None else command_age_s * 1000.0
                     ),
@@ -983,6 +993,7 @@ def main() -> None:
                         applied_action=applied_action,
                         watchdog_holding=watchdog_holding,
                     )
+                    shape_row.update(input_holding=input_holding, execution_holding=execution_holding)
                     if args.shape_debug_hz > 0.0 and now >= next_shape_debug:
                         _print_shape_diagnostic(shape_row)
                         next_shape_debug = now + shape_debug_interval
@@ -998,7 +1009,7 @@ def main() -> None:
                         pvt_command.ik_result, diagnostic_previous_u, diagnostic_requested,
                         axis_mapper.pulses_to_logical(base_pulses, pvt_command.target_pulses),
                         np.asarray(axis_mapper.pulses_to_logical(base_pulses, last_target_pulses)),
-                        ik.geometry, holding=watchdog_holding,
+                        ik.geometry, holding=execution_holding,
                         rotation_limited=command_filter.rotation_command_limited,
                     ))
                     next_live_debug = now + .25
@@ -1051,7 +1062,10 @@ def main() -> None:
                         "insertion_peak_speed_m_s": None if insertion_segment is None else insertion_segment.peak_speed_counts_s / pmac_cfg.pulses_per_meter,
                         "insertion_peak_accel_m_s2": None if insertion_segment is None else insertion_segment.peak_accel_counts_s2 / pmac_cfg.pulses_per_meter,
                         "accepted_token": None if cached is None else cached.accepted,
-                        "holding": watchdog_holding,
+                        "holding": execution_holding,
+                        "watchdog_holding": watchdog_holding,
+                        "input_holding": input_holding,
+                        "input_discarded": getattr(command_filter, 'input_discarded', False),
                         "rotation_command_limited": command_filter.rotation_command_limited,
                         "command_age_ms": status["command_age_ms"],
                         "rotary_peak_rad_s": max(rotary_peaks),

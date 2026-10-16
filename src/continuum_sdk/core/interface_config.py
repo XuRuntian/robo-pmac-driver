@@ -75,6 +75,10 @@ class CartesianCommandConfig:
     max_angular_speed_rad_s: tuple[float, float, float]
     deadband_m: float
     smooth_alpha: float
+    stop_priority: bool = False
+    input_idle_timeout_s: float = 0.12
+    input_translation_epsilon_m: float = 0.00005
+    input_rotation_epsilon_rad: float = 0.001
 
 
 @dataclass(frozen=True)
@@ -164,7 +168,20 @@ def load_robot_interface_config(
         ),
         deadband_m=float(command_raw["deadband_m"]),
         smooth_alpha=float(command_raw["smooth_alpha"]),
+        stop_priority=command_raw.get("stop_priority", False),
+        input_idle_timeout_s=float(command_raw.get("input_idle_timeout_s", 0.12)),
+        input_translation_epsilon_m=float(command_raw.get("input_translation_epsilon_m", 0.00005)),
+        input_rotation_epsilon_rad=float(command_raw.get("input_rotation_epsilon_rad", 0.001)),
     )
+    if not isinstance(command.stop_priority, bool):
+        raise ValueError("command.stop_priority must be a boolean.")
+    if any(not math.isfinite(v) or v <= 0 for v in (
+        command.input_idle_timeout_s, command.input_translation_epsilon_m,
+        command.input_rotation_epsilon_rad,
+    )):
+        raise ValueError("Input idle timeout and motion thresholds must be finite and positive.")
+    if command.stop_priority and command.smooth_alpha <= 0:
+        raise ValueError("stop_priority requires smooth_alpha > 0.")
     if any(
         len(values) != 3
         for values in (
@@ -209,6 +226,11 @@ def load_robot_interface_config(
             "frame.rotation_signs",
         ),
     )
+    if command.stop_priority and command.orientation_enabled:
+        roll_axis = "xyz".index(frame.rotation_map[2])
+        if (command.max_rotation_delta_rad[roll_axis] != 0 or
+                any(command.max_rotation_delta_rad[i] == 0 for i in range(3) if i != roll_axis)):
+            raise ValueError("stop_priority requires two tilt axes enabled and local roll disabled.")
 
     execution_raw = raw.get("execution", {})
     speed_raw = execution_raw.get("insertion_max_speed_m_s")
@@ -219,6 +241,8 @@ def load_robot_interface_config(
     insertion_accel = None if accel_raw is None else float(accel_raw)
     if insertion_accel is not None and (not math.isfinite(insertion_accel) or insertion_accel <= 0):
         raise ValueError('execution.insertion_max_accel_m_s2 must be finite and positive.')
+    if command.stop_priority and (insertion_speed is None or insertion_accel is None):
+        raise ValueError('stop_priority requires the insertion speed/acceleration profile.')
     error_raw = execution_raw.get("insertion_error_stop_m")
     insertion_error = None if error_raw is None else float(error_raw)
     if insertion_error is not None and (not math.isfinite(insertion_error) or insertion_error <= 0):
