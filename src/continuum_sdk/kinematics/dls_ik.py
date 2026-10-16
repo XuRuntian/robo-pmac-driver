@@ -1,6 +1,6 @@
 import math
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Callable, Literal
 
 import numpy as np
 
@@ -214,13 +214,15 @@ class DLSIK:
         r_goal: np.ndarray | None = None,
         z_goal: np.ndarray | None = None,
         max_steps: int = 5,
+        candidate_validator: Callable[[np.ndarray], bool] | None = None,
     ) -> IKResult:
         self._limit_attempts = {}
         err = None
         du = np.zeros(5, dtype=float)
 
         for _ in range(max_steps):
-            err, du = self.step(p_goal=p_goal, r_goal=r_goal, z_goal=z_goal)
+            err, du = self.step(p_goal=p_goal, r_goal=r_goal, z_goal=z_goal,
+                                candidate_validator=candidate_validator)
             if self.has_converged(err):
                 break
 
@@ -257,6 +259,7 @@ class DLSIK:
         p_goal: np.ndarray,
         r_goal: np.ndarray | None = None,
         z_goal: np.ndarray | None = None,
+        candidate_validator: Callable[[np.ndarray], bool] | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         g = self.geometry
         d_range = (g.d_min, g.d_max)
@@ -290,11 +293,25 @@ class DLSIK:
         accepted = False
 
         scale = 1.0
-        for _ in range(max(0, int(self.line_search_steps))):
+        # Only extend the search after a task-improving trial fails execution
+        # feasibility. Otherwise preserve the original solver's search budget.
+        # The validator stays anchored to the last committed segment.
+        base_trials = max(0, int(self.line_search_steps))
+        feasibility_rejected = False
+        trials = base_trials + (4 if candidate_validator is not None else 0)
+        for trial in range(trials):
+            if trial >= base_trials and not feasibility_rejected:
+                break
             self._record_limit_attempt(qu + scale * dqu, d_range, cap_a, cap_c)
             qu_try = clamp_qu(qu + scale * dqu, d_range, cap_a, cap_c)
             e_try = self._task_qu(qu_try, p_goal, r_goal, z_goal)
             err_try = float(np.linalg.norm(e_try))
+
+            if (err_try < best_err and candidate_validator is not None
+                    and not candidate_validator(self._clip_u(qu_to_u(qu_try)))):
+                feasibility_rejected = True
+                scale *= 0.5
+                continue
 
             if err_try < best_err:
                 best_qu = qu_try
@@ -332,7 +349,8 @@ class DLSIK:
                 qu_try = clamp_qu(qu + gradient_update, d_range, cap_a, cap_c)
                 e_try = self._task_qu(qu_try, p_goal, r_goal, z_goal)
                 err_try = float(np.linalg.norm(e_try))
-                if err_try < best_err - 1e-9:
+                if (err_try < best_err - 1e-9 and
+                        (candidate_validator is None or candidate_validator(self._clip_u(qu_to_u(qu_try))))):
                     best_qu = qu_try
                     best_err = err_try
 

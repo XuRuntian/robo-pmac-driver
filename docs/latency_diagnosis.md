@@ -660,3 +660,58 @@ all ordinary operation is unaffected. No extra latency filter was introduced.
 Scope limits: cubic peak velocity only; no validated rotary acceleration/jerk
 bounds, no automatic deceleration planner, no guarantee of physical stop timing.
 Existing local PMAC protection remains. Hardware verification is outstanding.
+
+## 2026-10-16: stop-priority checkpoint and feasible IK trials
+
+Checkpoint `75da7ea` isolates the opt-in stop-priority policy. The next change
+enables `execution.rotary_feasible_ik` only in the existing stop-priority trial
+config. No controller parameters or axis/frame mappings change.
+
+The latest stop (`rotary_stop_1792154015491354000.json`, rejected sequence 2521)
+is reproducible from the preceding committed target and the recorded applied
+command. A small input update changes which DLS line-search step improves the
+task, producing an axis-4 step of 2.873 degrees and a cubic peak of 3.343 rad/s.
+This is a candidate-generation discontinuity; it does not establish motor lag
+as the cause. The earlier `rotary_stop_1792141560417376300.json` is also exactly
+reproduced by regression fixtures, including its 2.536 rad/s peak.
+
+Each task-improving IK trial now optionally passes through the existing tendon
+model, ContinuumAxisMapper and wire-quantized cubic rotary guard. All inner
+iterations use the same last committed position and endpoint velocity. A failed
+trial permits four additional step halvings; when feasibility never rejects a
+trial, the original search budget and behavior are retained. Gradient fallback
+uses the same validator. The eight-iteration budget stays unchanged. The final
+submission guard independently checks the resulting segment at the unchanged
+2.5 rad/s anomaly threshold. If no feasible improvement is found, IK retains its
+current state; this is not a guarantee of progress toward every requested pose.
+
+Offline evidence, stored under `outputs/stop_latency_audit/`:
+
+- `feasible_events.json`: earlier event peak 2.536 -> 1.728 rad/s, latest event
+  3.343 -> 1.994 rad/s. Both reduce weighted task residual. Latest maximum rotary
+  step is 1.714 degrees. These are predicted segments, not measured motor motion.
+- `feasible_summary.json` and `replay_feasible_ik.py`: latest log reproduces all
+  2521 accepted target frames exactly with both the original and guarded solver.
+  Input hold still starts at sequence 2098. The rejected final event is absent
+  from the CSV and is tested separately using its JSON fixture.
+- Stop-priority plus guarded IK replays all 4403/3522 accepted input frames in
+  older 01/03 logs without a guard trip. These are changed target trajectories,
+  not predictions of encoder feedback or exact replays of the old policy.
+- Latest active-frame pure-compute P99 is 7.18 ms, maximum 8.51 ms in this run;
+  unguarded replay P99 is 6.55 ms. No hardware communication, scheduler or CSV
+  write time is included, so these numbers are not a real-time guarantee.
+
+Scope: this prevents the two reproduced candidate jumps without loosening the
+guard. It does not solve unreachable targets, large existing pose residuals
+(latest replay active position-error P95 remains 29.46 mm), rotary acceleration
+or jerk limits, or fifth-axis coupling. Stop-priority still discards excess
+master displacement. No hardware, SSH, homing, zeroing or PLC operations were
+performed. Real hardware validation of the new IK policy remains outstanding.
+
+Validation: 305 automated tests pass, including exact event reproduction,
+whole-cycle feasibility anchoring, rejected-all-trials behavior, unchanged
+permissive-validator behavior, stop/resume integration and independent final
+guard rejection with fake hardware. `apps/debug_full_chain.py --dx 1 --rx 1`
+also passes in default dry-run (mapping [2,1,3,4,5], signs [+,-,-,-,+]; pulse
+roundtrip position residual 0.0886 mm). That utility checks mapping consistency,
+not the guarded runtime policy or actual hardware accuracy.

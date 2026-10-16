@@ -1,0 +1,216 @@
+[
+  {
+    "source": "teleop_news_03.csv",
+    "continuum_yaml": "geometry:\n  s_s: 0.002\n  s_a: 0.048\n  s_c: 0.024\n  h_bc: 0.0064\n  h_de: 0.009\n  theta_a_max_rad: 3.141592653589793\n  theta_c_max_rad: 1.5707963267948966\n  d_min_m: 0.0\n  d_max_m: 0.255\n  # Robot frame: +X right, +Y down, +Z forward/insertion.\n  base_offset_m: [0.0, -0.207, 0.4402]\n  use_sheath: false\n\nik:\n  task_mode: pos_z\n  lambda_damping: 0.008\n  alpha: 1.0\n  pos_tol_m: 0.0002\n  dir_tol: 0.001\n  ori_tol_rad: 0.0005\n  max_inner_steps: 8\n  jacobian_eps: [0.001, 0.005, 0.005, 0.005, 0.005]\n  position_weight: 1.0\n  direction_weight: 0.8\n  orientation_weight: 0.1\n  line_search_steps: 4\n  gradient_fallback_step: 0.01\n  # Matches the newer MuJoCo teleop IK: no hard per-step IK clipping.\n  # Cartesian speed limits are still enforced by robot_interface.yaml.\n  step_limit_enabled: false\n  # Conservative fallback if step_limit_enabled is set true.\n  max_delta_u: [0.0003, 0.0025, 0.0025, 0.0025, 0.0025]\n\nactuation:\n  # Matched to tdrc_robot_system/scripts/hardware/interactive_pmac_joint_test.py.\n  hole_radius_m: 0.00215\n  spool_diameter_m: 0.012\n  # Public joint phi -> tendon-plane phi; inverse feedback uses the same signs.\n  phi_a_sign: -1\n  phi_c_sign: -1\n  # Hardware observation (2026-09-21): phi_a=0 bends toward WORLD -Z;\n  # phi_c=0 bends toward WORLD +Z. Recorded only: no zero-angle offset applied.\n\ncontrol:\n  update_hz: 50\n  pvt_velocity_from_diff: true\n",
+    "interface_yaml": "# EXPERIMENTAL: axis-5 short-motion trials passed; full Omega integration is pending.\n# Requires live Axis5_MaxStep=5023 at 50 Hz; hardware tests used temporary 6500.\n# This file is opt-in. The default robot_interface.yaml is unchanged.\n# Framework-independent robot interface contract used before the LeRobot adapter.\ncontrol_hz: 50\n\n# External command frame: +X right, +Y forward/insertion, +Z up.\n# Internal IK frame remains +X right, +Y down, +Z forward/insertion.\n# External standard right-handed XYZ command -> existing internal IK frame.\n# Internal frame remains +X right, +Y down, +Z insertion.\n\n# world = [X, Y, Z]\n\n# zxy\n#  \u2193\n# local = [Z, X, Y]\n\nframe:\n  translation_map: zxy\n  translation_signs: [-1, -1, 1]\n  # Angular vectors use the same basis change as XYZ vectors:\n  # Current mapping: world [X, Y, Z] -> internal [-Z, X, Y].\n  # Hardware WORLD-axis calibration is still pending; preserve these values.\n  rotation_map: zxy\n  rotation_signs: [1, 1, 1]\n\ninitial_position:\n  # Axis 5 is manually homed before use. Preserve displacement from that zero\n  # instead of treating each teleoperation startup as insertion d=0.\n  insertion_zero_pulses: 0\n  # capture_current preserves the current behavior: startup feedback becomes\n  # the logical actuator zero for this run.\n  #\n  # For reproducible datasets, switch to configured_reference after the\n  # reference position and tolerances have been physically validated.\n  mode: capture_current\n  # Recorded approximately straight pose; capture_current does not use it as zero.\n  reference_pulses: [68887403, 502449050, -138990801, 404264370, 957431]\n  reject_all_zero_feedback: true\n  require_near_reference: false\n  tolerance_pulses: null\n\nexecution:\n  # Software anomaly stop, NOT a validated motor speed capability.\n  # Checks rotary PVT cubic peak before submission; trip ends the session.\n  rotary_target_stop_rad_s: 2.5\n  # Logical insertion d speed budget, independent of WORLD X/Y/Z.\n  # Candidate retained after short-motion and repeated-reversal trials.\n  # Execution generates acceleration-bounded PVT segments; PMAC guards are separate.\n  insertion_max_speed_m_s: 0.004\n  insertion_max_accel_m_s2: 0.005\n  # Host sampled abort threshold, not a replacement for PMAC protection.\n  insertion_error_stop_m: 0.00005\n\ncommand:\n  # Tip pose offset from the configured neutral tip pose, robot XYZ.\n  max_delta_m: [0.08, 0.05, 0.05]\n  max_speed_m_s: [0.01, 0.01, 0.01]\n\n  # Default teleoperation uses the complete 5-DOF IK task: translation plus\n  # tip-axis direction. In the external/world frame, Ry maps to continuum Rz\n  # (tool roll) and remains disabled.\n  orientation_enabled: true\n  # External/world rotations: Rx and Rz are enabled; Ry maps to the\n  # continuum tool-axis roll and is disabled.\n  # null removes the Rx/Rz command cap; 0 keeps Ry disabled.\n  # IK geometry and execution limits remain; not every requested pose is reachable.\n  max_rotation_delta_rad: [null, 0.0, null]\n  max_angular_speed_rad_s: [0.5, 0.0, 0.5]\n\n  deadband_m: 0.0003\n  smooth_alpha: 0.5 # \u5e73\u6ed1\u5ea6 1.0 \u4e3a\u5173\u95ed\n",
+    "axis_order": [
+      1,
+      0,
+      2,
+      3,
+      4
+    ],
+    "axis_signs": [
+      1,
+      -1,
+      -1,
+      -1,
+      1
+    ],
+    "base_pulses": [
+      67946668,
+      308352403,
+      -136832992,
+      408286185,
+      0
+    ],
+    "initial_pulses": [
+      67946668,
+      308352403,
+      -136832992,
+      408286185,
+      200339
+    ],
+    "event": {
+      "kind": "rotary_target_stop",
+      "physical_axis": 3,
+      "logical_axis": 3,
+      "peak_rad_s": 2.5359893752317437,
+      "threshold_rad_s": 2.5,
+      "logical_delta_rad": [
+        0.007112232425854103,
+        0.02353310751293894,
+        -0.038000851883991556,
+        -0.01952638247369583
+      ],
+      "peaks_rad_s": [
+        0.4622669057708212,
+        1.541915754887974,
+        2.5359893752317437,
+        1.227821244620584
+      ],
+      "previous_pulses": [
+        67971513,
+        308313410,
+        -135856204,
+        408719579,
+        1174040
+      ],
+      "rejected_pulses": [
+        67923727,
+        308327852,
+        -135779040,
+        408759229,
+        1170368
+      ],
+      "previous_velocity_counts_ms": [
+        -164.22217606079982,
+        72.38183505631122,
+        -15.834011797046065,
+        450.4099810240337,
+        -180.6022
+      ],
+      "rejected_velocity_counts_ms": [
+        -2389.2867354486657,
+        722.1226129719444,
+        3858.173026041091,
+        1982.5259347930596,
+        -186.5792
+      ],
+      "period_s": 0.02,
+      "sequence": 3522,
+      "execute": true,
+      "ik_converged": false,
+      "ik_u": [
+        0.013520399169773127,
+        0.046178481829203866,
+        0.7515141154085621,
+        1.5707963267939014,
+        -1.180061979879928
+      ],
+      "applied_command": {
+        "tip_delta_x": -0.003717263011226468,
+        "tip_delta_y": -0.004580580773360906,
+        "tip_delta_z": -0.002800921997926668,
+        "tip_delta_rx": 0.5899301506024981,
+        "tip_delta_ry": 0.0,
+        "tip_delta_rz": 1.4390073607856895
+      }
+    },
+    "previous_applied": {
+      "tip_delta_x": -0.0035459108176605194,
+      "tip_delta_y": -0.00446267121633994,
+      "tip_delta_z": -0.002773196443680872,
+      "tip_delta_rx": 0.5999301506024981,
+      "tip_delta_ry": 0.0,
+      "tip_delta_rz": 1.4490073607856895
+    }
+  },
+  {
+    "source": "teleop_stop_priority_20261016_203234.csv",
+    "continuum_yaml": "geometry:\n  s_s: 0.002\n  s_a: 0.048\n  s_c: 0.024\n  h_bc: 0.0064\n  h_de: 0.009\n  theta_a_max_rad: 3.141592653589793\n  theta_c_max_rad: 1.5707963267948966\n  d_min_m: 0.0\n  d_max_m: 0.255\n  # Robot frame: +X right, +Y down, +Z forward/insertion.\n  base_offset_m: [0.0, -0.207, 0.4402]\n  use_sheath: false\n\nik:\n  task_mode: pos_z\n  lambda_damping: 0.008\n  alpha: 1.0\n  pos_tol_m: 0.0002\n  dir_tol: 0.001\n  ori_tol_rad: 0.0005\n  max_inner_steps: 8\n  jacobian_eps: [0.001, 0.005, 0.005, 0.005, 0.005]\n  position_weight: 1.0\n  direction_weight: 0.8\n  orientation_weight: 0.1\n  line_search_steps: 4\n  gradient_fallback_step: 0.01\n  # Matches the newer MuJoCo teleop IK: no hard per-step IK clipping.\n  # Cartesian speed limits are still enforced by robot_interface.yaml.\n  step_limit_enabled: false\n  # Conservative fallback if step_limit_enabled is set true.\n  max_delta_u: [0.0003, 0.0025, 0.0025, 0.0025, 0.0025]\n\nactuation:\n  # Matched to tdrc_robot_system/scripts/hardware/interactive_pmac_joint_test.py.\n  hole_radius_m: 0.00215\n  spool_diameter_m: 0.012\n  # Public joint phi -> tendon-plane phi; inverse feedback uses the same signs.\n  phi_a_sign: -1\n  phi_c_sign: -1\n  # Hardware observation (2026-09-21): phi_a=0 bends toward WORLD -Z;\n  # phi_c=0 bends toward WORLD +Z. Recorded only: no zero-angle offset applied.\n\ncontrol:\n  update_hz: 50\n  pvt_velocity_from_diff: true\n",
+    "interface_yaml": "# OFFLINE-VALIDATED CANDIDATE: hardware stopping behavior is not yet validated.\n# Stop priority discards excess master displacement; position correspondence changes.\n# EXPERIMENTAL: axis-5 short-motion trials passed; full Omega integration is pending.\n# Requires live Axis5_MaxStep=5023 at 50 Hz; hardware tests used temporary 6500.\n# This file is opt-in. The default robot_interface.yaml is unchanged.\n# Framework-independent robot interface contract used before the LeRobot adapter.\ncontrol_hz: 50\n\n# External command frame: +X right, +Y forward/insertion, +Z up.\n# Internal IK frame remains +X right, +Y down, +Z forward/insertion.\n# External standard right-handed XYZ command -> existing internal IK frame.\n# Internal frame remains +X right, +Y down, +Z insertion.\n\n# world = [X, Y, Z]\n\n# zxy\n#  \u2193\n# local = [Z, X, Y]\n\nframe:\n  translation_map: zxy\n  translation_signs: [-1, -1, 1]\n  # Angular vectors use the same basis change as XYZ vectors:\n  # Current mapping: world [X, Y, Z] -> internal [-Z, X, Y].\n  # Hardware WORLD-axis calibration is still pending; preserve these values.\n  rotation_map: zxy\n  rotation_signs: [1, 1, 1]\n\ninitial_position:\n  # Axis 5 is manually homed before use. Preserve displacement from that zero\n  # instead of treating each teleoperation startup as insertion d=0.\n  insertion_zero_pulses: 0\n  # capture_current preserves the current behavior: startup feedback becomes\n  # the logical actuator zero for this run.\n  #\n  # For reproducible datasets, switch to configured_reference after the\n  # reference position and tolerances have been physically validated.\n  mode: capture_current\n  # Recorded approximately straight pose; capture_current does not use it as zero.\n  reference_pulses: [68887403, 502449050, -138990801, 404264370, 957431]\n  reject_all_zero_feedback: true\n  require_near_reference: false\n  tolerance_pulses: null\n\nexecution:\n  # Software anomaly stop, NOT a validated motor speed capability.\n  # Checks rotary PVT cubic peak before submission; trip ends the session.\n  rotary_target_stop_rad_s: 2.5\n  # Logical insertion d speed budget, independent of WORLD X/Y/Z.\n  # Candidate retained after short-motion and repeated-reversal trials.\n  # Execution generates acceleration-bounded PVT segments; PMAC guards are separate.\n  insertion_max_speed_m_s: 0.004\n  insertion_max_accel_m_s2: 0.005\n  # Host sampled abort threshold, not a replacement for PMAC protection.\n  insertion_error_stop_m: 0.00005\n\ncommand:\n  stop_priority: true\n  # No meaningful input change for 120 ms requests existing hold/braking behavior.\n  input_idle_timeout_s: 0.12\n  input_translation_epsilon_m: 0.00005\n  input_rotation_epsilon_rad: 0.001\n  # Tip pose offset from the configured neutral tip pose, robot XYZ.\n  max_delta_m: [0.08, 0.05, 0.05]\n  max_speed_m_s: [0.01, 0.01, 0.01]\n\n  # Default teleoperation uses the complete 5-DOF IK task: translation plus\n  # tip-axis direction. In the external/world frame, Ry maps to continuum Rz\n  # (tool roll) and remains disabled.\n  orientation_enabled: true\n  # External/world rotations: Rx and Rz are enabled; Ry maps to the\n  # continuum tool-axis roll and is disabled.\n  # null removes the Rx/Rz command cap; 0 keeps Ry disabled.\n  # IK geometry and execution limits remain; not every requested pose is reachable.\n  max_rotation_delta_rad: [null, 0.0, null]\n  max_angular_speed_rad_s: [0.5, 0.0, 0.5]\n\n  deadband_m: 0.0003\n  smooth_alpha: 0.5 # \u5e73\u6ed1\u5ea6 1.0 \u4e3a\u5173\u95ed\n",
+    "axis_order": [
+      1,
+      0,
+      2,
+      3,
+      4
+    ],
+    "axis_signs": [
+      1,
+      -1,
+      -1,
+      -1,
+      1
+    ],
+    "base_pulses": [
+      67975395,
+      308313000,
+      -135856800,
+      408719574,
+      0
+    ],
+    "initial_pulses": [
+      67975395,
+      308313000,
+      -135856800,
+      408719574,
+      1
+    ],
+    "event": {
+      "kind": "rotary_target_stop",
+      "physical_axis": 4,
+      "logical_axis": 4,
+      "peak_rad_s": 3.3430742694691027,
+      "threshold_rad_s": 2.5,
+      "logical_delta_rad": [
+        0.0013227708278523835,
+        -0.03324655941486016,
+        0.03668793042939198,
+        0.05014611404203157
+      ],
+      "peaks_rad_s": [
+        0.08818472311660704,
+        2.216437294434664,
+        2.445862028734116,
+        3.3430742694691027
+      ],
+      "previous_pulses": [
+        67631826,
+        308207888,
+        -136341370,
+        408171734,
+        1005623
+      ],
+      "rejected_pulses": [
+        67699336,
+        308210574,
+        -136415868,
+        408069908,
+        1010465
+      ],
+      "previous_velocity_counts_ms": [
+        -2.8180042428293913e-12,
+        4.227006364244087e-12,
+        1.690802545697635e-11,
+        -1.690802545697635e-11,
+        245.0748
+      ],
+      "rejected_velocity_counts_ms": [
+        3375.547742422632,
+        134.33215423595783,
+        -3724.9495340901303,
+        -5091.296834335118,
+        239.0978
+      ],
+      "period_s": 0.02,
+      "sequence": 2521,
+      "execute": true,
+      "ik_converged": false,
+      "ik_u": [
+        0.016075137566980976,
+        0.4046675964200835,
+        1.215512202465117,
+        1.5707963267939014,
+        1.4246122977886362
+      ],
+      "applied_command": {
+        "tip_delta_x": -0.00899252463109623,
+        "tip_delta_y": -0.011088695359722938,
+        "tip_delta_z": -0.008182193323946624,
+        "tip_delta_rx": 0.2517491034070223,
+        "tip_delta_ry": 0.0,
+        "tip_delta_rz": -1.9486459324851704
+      }
+    },
+    "previous_applied": {
+      "tip_delta_x": -0.008956237871719192,
+      "tip_delta_y": -0.011105283787344603,
+      "tip_delta_z": -0.008117277967912541,
+      "tip_delta_rx": 0.2489105768196055,
+      "tip_delta_ry": 0.0,
+      "tip_delta_rz": -1.9586459324851704
+    }
+  }
+]

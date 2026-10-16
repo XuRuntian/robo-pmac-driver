@@ -43,6 +43,9 @@ initial_position:
   tolerance_pulses: null
 
 execution:
+  # Reject infeasible IK trials and try smaller task-improving steps.
+  # The final independent PVT guard remains enabled at the same threshold.
+  rotary_feasible_ik: true
   # Software anomaly stop, NOT a validated motor speed capability.
   # Checks rotary PVT cubic peak before submission; trip ends the session.
   rotary_target_stop_rad_s: 2.5

@@ -127,6 +127,8 @@ def test_stop_priority_driver_cancels_static_input_and_reanchors_on_resume(tmp_p
     assert all(r['input_holding']=='True' for r in rows[36:100])
     assert all(r['watchdog_holding']=='False' for r in rows)
     assert all(r['input_holding']=='False' for r in rows[100:])
+    assert any(int(r['ik_feasibility_checks'])>0 for r in rows)
+    assert all(int(r['ik_feasibility_checks'])==0 for r in rows if r['holding']=='True')
     for axis in range(1,6):
         assert len({r[f'target_p{axis}'] for r in rows[90:100]})==1
     # Restart continues from committed pose, not the unexecuted original offset.
@@ -135,13 +137,15 @@ def test_stop_priority_driver_cancels_static_input_and_reanchors_on_resume(tmp_p
         assert float(row['insertion_peak_accel_m_s2'])<=.005+1e-10
 
 
-def test_rotary_jump_is_never_submitted_and_cleanup_precedes_evidence(tmp_path, monkeypatch):
+@pytest.mark.parametrize('guarded_ik', [False, True])
+def test_rotary_jump_is_never_submitted_and_cleanup_precedes_evidence(tmp_path, monkeypatch, guarded_ik):
     monkeypatch.chdir(ROOT)
     monkeypatch.setattr(sys,'argv',['driver','--execute','--latency-csv',str(tmp_path/'trace.csv'),
-        '--command-port','0','--state-port','0'])
+        '--command-port','0','--state-port','0'] +
+        (['--interface-config','config/robot_interface_stop_priority_trial.yaml'] if guarded_ik else []))
     calls=[]
     positions=[1000,2000,3000,4000,1000000]
-    fake=SimpleNamespace(base_positions=positions,pvt_axis5_max_step=3000,
+    fake=SimpleNamespace(base_positions=positions,pvt_axis5_max_step=5023 if guarded_ik else 3000,
         safe_boot_and_home=lambda:None,close=lambda:calls.append('close'),
         move_pvt_stream=lambda **kw:calls.append('submit'),
         protocol=SimpleNamespace())

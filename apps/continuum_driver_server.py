@@ -817,6 +817,11 @@ def main() -> None:
                         velocities=[0.0] * 5,
                     )
                 else:
+                    feasibility_options = ({
+                        'rotary_guard': rotary_guard,
+                        'previous_pulses': last_target_pulses,
+                        'previous_velocities': last_target_velocities,
+                    } if interface_cfg.rotary_feasible_ik else {})
                     pvt_command = pvt_mapper.build_command(
                         center_p
                         + apply_axis_transform(
@@ -825,6 +830,7 @@ def main() -> None:
                             interface_cfg.frame.translation_signs,
                         ),
                         z_goal=None if r_goal is None else r_goal[:, 2],
+                        **feasibility_options,
                     )
 
                 trace_map_end = time.perf_counter() if latency_file else 0.0
@@ -1071,6 +1077,8 @@ def main() -> None:
                         "rotary_peak_rad_s": max(rotary_peaks),
                         "rotary_stop_threshold_rad_s": rotary_guard.threshold,
                         "ik_converged": pvt_command.ik_result.converged,
+                        "ik_feasibility_checks": 0 if execution_holding else pvt_command.feasibility_checks,
+                        "ik_feasibility_rejections": 0 if execution_holding else pvt_command.feasibility_rejections,
                     }
                     protocol = getattr(robot, "protocol", None)
                     for prefix, metric in (

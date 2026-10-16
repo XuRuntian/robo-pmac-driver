@@ -101,6 +101,7 @@ class RobotInterfaceConfig:
     insertion_max_accel_m_s2: float | None = None
     insertion_error_stop_m: float | None = None
     rotary_target_stop_rad_s: float | None = None
+    rotary_feasible_ik: bool = False
 
     def insertion_step_limit(self, pulses_per_meter: float, dt_s: float,
                              controller_max_step: int | None = None) -> float:
@@ -233,6 +234,9 @@ def load_robot_interface_config(
             raise ValueError("stop_priority requires two tilt axes enabled and local roll disabled.")
 
     execution_raw = raw.get("execution", {})
+    rotary_feasible_ik = execution_raw.get('rotary_feasible_ik', False)
+    if not isinstance(rotary_feasible_ik, bool):
+        raise ValueError('execution.rotary_feasible_ik must be a boolean.')
     speed_raw = execution_raw.get("insertion_max_speed_m_s")
     insertion_speed = None if speed_raw is None else float(speed_raw)
     if insertion_speed is not None and (not math.isfinite(insertion_speed) or insertion_speed <= 0):
@@ -260,4 +264,5 @@ def load_robot_interface_config(
         insertion_max_accel_m_s2=insertion_accel,
         insertion_error_stop_m=insertion_error,
         rotary_target_stop_rad_s=rotary_stop,
+        rotary_feasible_ik=rotary_feasible_ik,
     )
