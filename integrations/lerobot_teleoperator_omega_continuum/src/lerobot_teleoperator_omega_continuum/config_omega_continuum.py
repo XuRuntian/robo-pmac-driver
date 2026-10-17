@@ -9,6 +9,8 @@ from lerobot.teleoperators.config import TeleoperatorConfig
 @dataclass
 class OmegaContinuumConfig(TeleoperatorConfig):
     simulate: bool = False
+    # Optional raw-pose broadcast for independent simulation; no robot commands.
+    raw_pose_endpoint: str = ""
     omega_config: str = "config/omega_teleop.yaml"
     # Deprecated CLI compatibility overrides. New deployments should leave these unset.
     scale_x: float | None = None

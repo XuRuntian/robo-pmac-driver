@@ -194,6 +194,9 @@ def test_joint_read_startup_and_clutch_with_fake_sdk(math_modules):
     omega._action_anchor = np.zeros(6)
     omega._last_action = np.zeros(6)
     omega._maybe_print_axis_debug = lambda *args: None
+    raw_samples = []
+    omega._raw_pose_publisher = SimpleNamespace(
+        publish=lambda p, r, clutch: raw_samples.append((p.copy(), r.copy(), clutch)))
     current[1] += .1
     assert omega.get_action()["tip_delta_rx"] == pytest.approx(.1)
     pressed = True
@@ -204,6 +207,10 @@ def test_joint_read_startup_and_clutch_with_fake_sdk(math_modules):
     assert omega.get_action()["tip_delta_rx"] == pytest.approx(.1)
     current[1] += .05
     assert omega.get_action()["tip_delta_rx"] == pytest.approx(.15)
+    assert [sample[2] for sample in raw_samples] == [False, True, False, False]
+    for position, rotation_matrix, _ in raw_samples:
+        np.testing.assert_array_equal(position, np.zeros(3))
+        np.testing.assert_array_equal(rotation_matrix, np.eye(3))
     omega._dhd.getOrientationRad = lambda out: -1
     with pytest.raises(RuntimeError, match="wrist joints"):
         omega._read_joint_angles()

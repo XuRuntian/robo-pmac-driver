@@ -42,3 +42,25 @@ def test_existing_mjcf_kinematics_without_physics(monkeypatch):
     with pytest.raises(ValueError):
         mirror.update([0,0,float('nan'),0,0])
     np.testing.assert_array_equal(before,mirror.data.qpos)
+
+
+@pytest.mark.parametrize('initial_pose', ['source', 'zero'])
+def test_display_gain_preserves_start_and_scales_subsequent_motion(initial_pose):
+    pytest.importorskip('mujoco')
+    from continuum_sdk.control.mujoco_visual import KinematicMirror
+    xml=Path(__file__).resolve().parents[2]/'surgical_continuum_robot/model/continuum_robot/mjcf/scene_main.xml'
+    if not xml.exists():
+        pytest.skip('Sibling model is not installed')
+    plain=KinematicMirror(xml)
+    amplified=KinematicMirror(xml,initial_pose=initial_pose)
+    neutral=amplified.data.qpos.copy()
+    start=[.016,.1,np.pi-.01,.2,-.3]
+    plain.update(start)
+    q0=plain.data.qpos.copy()
+    amplified.update(start,display_gain=5)
+    origin=neutral if initial_pose=='zero' else q0
+    np.testing.assert_allclose(amplified.data.qpos,origin,atol=1e-12)
+    for pose in [[.017,.11,-np.pi+.01,.22,-.32],start]:
+        plain.update(pose)
+        amplified.update(pose,display_gain=5)
+        np.testing.assert_allclose(amplified.data.qpos,origin+5*(plain.data.qpos-q0),atol=1e-12)

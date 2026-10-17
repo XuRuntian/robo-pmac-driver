@@ -1,5 +1,9 @@
 # LeRobot Integration
 
+Current Omega + MuJoCo setup: [parallel teleoperation](parallel_teleop.md).
+Keep the existing LeRobot robot path; opt into raw-pose broadcasting for an
+independent reference-IK simulation. The earlier shared-IK mode is historical.
+
 ## Rotation range ownership (2026-10-13)
 
 Current Omega plugin defaults are `max_rotation_x=None`, `max_rotation_z=None`,
@@ -289,7 +293,7 @@ Keep the existing Omega/LeRobot command in its own terminal. In another terminal
 
 ```bash
 cd /d/project/surgical_continuum_robot/robo-pmac-driver
-uv run --with mujoco python apps/view_robot_mujoco.py
+uv run --with mujoco python apps/view_robot_mujoco.py --source target
 ```
 
 The default model is the horizontal robot on a plane from the sibling project's
@@ -308,8 +312,14 @@ checked with offscreen renders of straight, two bending directions and a
 reverse bend with 40 mm insertion; it is not a full-workspace framing guarantee.
 The custom XML option may need manual camera adjustment for other model layouts.
 
-The default `--source target` shows the current PVT target after the driver's
-execution limits, so the visual robot follows the same command as the real robot.
+The default `--source ideal` displays the independent reference IK from
+`apps/omega_reference_sim.py`. See [Parallel teleoperation](parallel_teleop.md)
+for startup. It requires `--initial-pose source --display-gain 1` (the defaults).
+`--source target` selects the driver's execution-limited PVT target.
+In target/feedback modes, `--initial-pose zero` and `--display-gain`
+remain explicit diagnostic options only: they change the displayed geometry and
+must not be used for a 1:1 physical comparison. Zero mode anchors to the first
+valid source sample, then scales subsequent insertion/bending-component changes.
 Use `--source feedback` to display encoder-derived joint parameters using
 the driver's calibrated motor model and axis mapping. These are
 distinct from raw Omega commands. Multiple viewers may subscribe simultaneously.
@@ -327,6 +337,23 @@ refresh depends on graphics load and OS scheduling; target poses arrive at 50 Hz
 and fresh encoder poses normally arrive at about 10 Hz. This viewer does not add
 pose interpolation or a smoothing buffer. Use `--fps 20`
 if graphics load is excessive; camera rotation and zoom remain interactive.
+The viewer defaults to `--render-quality light` (shadows and reflections off).
+Use `--render-quality full` to restore those effects. `--wait-mode auto` uses the
+existing high-resolution waitable timer on Windows, and system sleep elsewhere;
+`--wait-mode system` explicitly restores ordinary sleep. The timer is local to
+the viewer, closes on exit, and does not change the global Windows timer period.
+These settings do not change robot control, feedback rate, pose mapping or
+queueing. Missing high-resolution timer support reports an error rather than
+silently changing the requested wait mode.
+
+Offline measurements on the development machine (2026-10-16): a requested
+16.67 ms sleep took a median 31.12 ms with ordinary Python 3.10 sleep, versus
+17.04 ms with the waitable timer. At 960x640, offscreen rendering took about
+201 ms/frame with shadows/reflections, versus 33.69 ms without them at identical
+multisampling settings. Geometry updates took about 0.01 ms. Offscreen timings
+include image readback and do not establish the interactive window's FPS;
+smoothness still requires operator verification, and 60 FPS is a request, not
+a guaranteed measured rate.
 Only the latest received state is retained. Missing input or encoder data older
 than 0.5 s freezes the last pose and prints a status change in the terminal;
 `--stale-s` adjusts this threshold. Closing the viewer does not stop the robot.
@@ -334,21 +361,16 @@ No viewer is required when running the driver without `--visual-state-port`.
 
 ### Direction alignment, one axis at a time
 
-The operator confirmed master-to-hardware forward/back and left/right motion
-agree. Preserve that control mapping; remaining alignment concerns the MuJoCo
-view/model. Use a fixed viewing position and describe robot motion in
-physical directions (right, insertion, up), not only screen directions. Compare
-one positive and one negative translation at a time: X, then Y, then Z; only
-after those agree compare Rx and Rz. World Ry remains disabled.
+Keep the validated LeRobot chain for hardware. The independent simulation uses
+`remote_control_ex` mapping/IK with the operator-confirmed rotation adjustment:
+raw local rotation increments [rx, ry, rz] become [rz, ry, -rx] before reference
+mapping. Translation and hardware commands are unchanged. The simulation uses
+pos_z IK, which tracks tip direction but not independent axial roll.
 
-For each trial record the master direction, driver applied command axis/sign,
-physical tip direction and MuJoCo tip direction. If the master's direction and
-applied command disagree, inspect the master mapping. If the physical and visual
-robots disagree for the same command, inspect model/display calibration before
-changing the shared input mapping. A camera rotation alone is not evidence for
-reversing a motor sign. Modify only the identified mapping component and repeat
-both signs before continuing to the next axis. Physical PMAC axis order/signs
-and the validated actuation dimensions are not tuning knobs for this procedure.
+Compare positive and negative motion one axis at a time from a fixed camera.
+The two branches do not share IK or gains, so visual differences alone do not
+justify changing physical motor signs. The PMAC axis order/signs and actuation
+geometry remain unchanged.
 
 
 ## Current input range policy
