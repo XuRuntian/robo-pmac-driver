@@ -102,6 +102,9 @@ class RobotInterfaceConfig:
     insertion_error_stop_m: float | None = None
     rotary_target_stop_rad_s: float | None = None
     rotary_feasible_ik: bool = False
+    # Bend rate used by the straighten reset. Conservative by default: a 90 deg
+    # bend unwinds in about 3 s, and the plan is guard-checked before moving.
+    straighten_max_theta_rate_rad_s: float = 0.5
 
     def insertion_step_limit(self, pulses_per_meter: float, dt_s: float,
                              controller_max_step: int | None = None) -> float:
@@ -255,6 +258,9 @@ def load_robot_interface_config(
     rotary_stop = None if rotary_raw is None else float(rotary_raw)
     if rotary_stop is not None and (not math.isfinite(rotary_stop) or rotary_stop <= 0):
         raise ValueError('execution.rotary_target_stop_rad_s must be finite and positive.')
+    straighten_rate = float(execution_raw.get("straighten_max_theta_rate_rad_s", 0.5))
+    if not math.isfinite(straighten_rate) or straighten_rate <= 0:
+        raise ValueError('execution.straighten_max_theta_rate_rad_s must be finite and positive.')
     return RobotInterfaceConfig(
         control_hz=int(raw["control_hz"]),
         frame=frame,
@@ -265,4 +271,5 @@ def load_robot_interface_config(
         insertion_error_stop_m=insertion_error,
         rotary_target_stop_rad_s=rotary_stop,
         rotary_feasible_ik=rotary_feasible_ik,
+        straighten_max_theta_rate_rad_s=straighten_rate,
     )

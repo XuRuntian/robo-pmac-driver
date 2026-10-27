@@ -4,6 +4,7 @@ Imports the user's reference implementation without starting its application,
 viewer, physics or device threads. The display model is deliberately unrelated
 to the reference application's default XML.
 """
+import dataclasses
 import importlib
 import importlib.util
 from pathlib import Path
@@ -12,6 +13,7 @@ import threading
 from types import SimpleNamespace
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 
 def load_reference(root):
@@ -34,6 +36,25 @@ def load_reference(root):
             raise
     return SimpleNamespace(**{part: importlib.import_module(name+'.'+part)
                               for part in ('config','state','teleop','kinematics','ik')})
+
+
+def real_branch_translation_map(omega_config, frame):
+    """Composite raw-device to reference-base translation used by the robot branch.
+
+    Mirrors device -> WORLD (omega_teleop.yaml) -> internal IK frame
+    (robot_interface frame), then relabels the internal frame into the
+    reference project's base frame. Reads configuration only.
+    """
+    from continuum_sdk.control.cartesian_frame import apply_axis_transform
+    gain = np.asarray(omega_config.translation.gain, dtype=float)
+    columns = []
+    for axis in np.eye(3):
+        world = apply_axis_transform(axis, omega_config.translation.map,
+                                     omega_config.translation.signs) * gain
+        internal = apply_axis_transform(world, frame.translation_map, frame.translation_signs)
+        # Internal IK frame [x, y, z] -> reference base frame [x, z, -y].
+        columns.append(np.array([internal[0], internal[2], -internal[1]]))
+    return np.column_stack(columns)
 
 
 def parse_omega_message(message):
@@ -59,7 +80,8 @@ def parse_omega_message(message):
 
 
 class ReferenceTeleop:
-    def __init__(self, reference, initial_joint, *, swap_rotation_xz=False):
+    def __init__(self, reference, initial_joint, *, swap_rotation_xz=False,
+                 translation_map=None):
         self.swap_rotation_xz = swap_rotation_xz
         self._raw_rotation = None
         self._mapped_rotation = np.eye(3)
@@ -76,8 +98,18 @@ class ReferenceTeleop:
         # Seed from the shared FK, not a different XML's settled physics pose.
         self.scene = SimpleNamespace(target_pose_in_base=lambda:
                                      (self.position.copy(), self.rotation[:,2].copy(), self.rotation.copy()))
+        teleop_config = reference.config.TeleopConfig()
+        if translation_map is not None:
+            # The upstream mapper applies position_scale * position_map. Fold both
+            # into the supplied matrix so gain and direction come from one source.
+            teleop_config = dataclasses.replace(teleop_config, position_scale=1.)
         self.mapper = reference.teleop.TeleopMapper(self.scene, threading.Lock(), self.omega,
-                                                    self.targets, None, reference.config.TeleopConfig())
+                                                    self.targets, None, teleop_config)
+        if translation_map is not None:
+            candidate = np.asarray(translation_map, dtype=float)
+            if candidate.shape != (3,3) or not np.all(np.isfinite(candidate)):
+                raise ValueError('translation_map must be a finite 3x3 matrix.')
+            self.mapper.position_map = candidate
         self.needs_anchor = True
         self.clutch = False
         self.connected = False
@@ -89,6 +121,8 @@ class ReferenceTeleop:
 
     def receive(self, message):
         p,r,connected,clutch = parse_omega_message(message)
+        # Operator-calibrated input basis: [x, y, z] -> [x, z, -y].
+        p = p[[0, 2, 1]] * np.array([1, 1, -1])
         if message['session'] == self.session and message['sequence'] <= self.sequence:
             raise ValueError('Duplicate or out-of-order Omega sample.')
         if message['session'] != self.session:
@@ -98,12 +132,15 @@ class ReferenceTeleop:
         self.connected, self.clutch = connected, clutch
         if connected:
             if self.swap_rotation_xz:
-                # Simulation rotation vector: [rx, ry, rz] -> [rz, ry, -rx].
-                # Exchange X/Z, then reverse the resulting Z; Y is unchanged.
+                # Operator-calibrated local increments: reverse handle twist X,
+                # then apply the existing X/Z basis change. Net: [rz, ry, rx].
                 if self._raw_rotation is None:
                     self._mapped_rotation = np.eye(3)
                 else:
                     delta = self._raw_rotation.T @ r
+                    rotvec = Rotation.from_matrix(delta).as_rotvec()
+                    rotvec[0] *= -1.0  # Local handle-axis twist; not WORLD Rz.
+                    delta = Rotation.from_rotvec(rotvec).as_matrix()
                     permutation = np.array([[0.,0.,1.],[0.,1.,0.],[-1.,0.,0.]])
                     self._mapped_rotation = (self._mapped_rotation
                                              @ permutation @ delta @ permutation.T)

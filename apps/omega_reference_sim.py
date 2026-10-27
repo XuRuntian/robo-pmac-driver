@@ -11,13 +11,58 @@ import time
 import numpy as np
 import zmq
 
-from continuum_sdk.control.reference_teleop import load_reference, ReferenceTeleop
+from continuum_sdk.control.reference_teleop import (
+    load_reference,
+    real_branch_translation_map,
+    ReferenceTeleop,
+)
+from continuum_sdk.core.interface_config import load_robot_interface_config
+from continuum_sdk.core.omega_config import load_omega_teleop_config
+from continuum_sdk.control.axis_mapper import ContinuumAxisMapper
+from pmac_sdk.core.config_model import PMACConfig
 from pmac_sdk.core.waiting import WindowsHighResolutionWait
 
 
-def run(endpoint, visual_endpoint, reference_root, duration=0, timeout=.2, rotation_map='swap-xz'):
+CONFIG_DIR = Path(__file__).resolve().parents[1]/'config'
+
+
+def initial_simulation_joint(reference, interface, axis5_pulses):
+    """Apply the driver's insertion reference to a supplied startup encoder count."""
+    cfg = PMACConfig()
+    mapper = ContinuumAxisMapper(cfg.pulses_per_rad, cfg.pulses_per_meter,
+                                cfg.axis_order, cfg.axis_signs)
+    index = mapper.axis_order[4]
+    current = [0] * 5
+    current[index] = axis5_pulses
+    base = current.copy()
+    zero = interface.initial_position.insertion_zero_pulses
+    if zero is not None:
+        base[index] = zero
+    joint = np.zeros(5)
+    joint[0] = mapper.pulses_to_logical(base, current)[4]
+    low, high = reference.kinematics.ContinuumKinematics(
+        reference.config.KinematicsConfig()).insertion_bounds
+    if not low <= joint[0] <= high:
+        raise ValueError(f'Simulation startup insertion {joint[0]*1000:.3f} mm is outside '
+                         f'[{low*1000:.3f}, {high*1000:.3f}] mm; '
+                         'check insertion_zero_pulses and --initial-axis5-pulses.')
+    return joint
+
+
+def run(endpoint, visual_endpoint, reference_root, duration=0, timeout=.2, rotation_map='swap-xz',
+        translation_source='robot-branch', omega_config=None, interface_config=None,
+        initial_axis5_pulses=0):
     reference = load_reference(reference_root)
-    shared = ReferenceTeleop(reference, np.zeros(5), swap_rotation_xz=rotation_map == 'swap-xz')
+    interface = load_robot_interface_config(
+        interface_config or CONFIG_DIR/'robot_interface_stop_priority_trial.yaml')
+    initial_joint = initial_simulation_joint(reference, interface, initial_axis5_pulses)
+    translation = None
+    if translation_source == 'robot-branch':
+        translation = real_branch_translation_map(
+            load_omega_teleop_config(omega_config or CONFIG_DIR/'omega_teleop.yaml'),
+            interface.frame)
+    shared = ReferenceTeleop(reference, initial_joint, swap_rotation_xz=rotation_map == 'swap-xz',
+                             translation_map=translation)
     interval = 1.0 / reference.config.SimulationConfig().teleop_hz
     with ExitStack() as cleanup, zmq.Context() as context:
         source = context.socket(zmq.SUB)
@@ -37,8 +82,15 @@ def run(endpoint, visual_endpoint, reference_root, duration=0, timeout=.2, rotat
             cleanup.callback(timer.close)
             sleep = timer.sleep
         print(f'Independent simulation IK | raw={endpoint} | visual={visual_endpoint}', flush=True)
-        print('Model zero initial pose | no hardware connection | LeRobot robot branch unchanged', flush=True)
+        print(f'Simulation startup insertion d={initial_joint[0]*1000:.3f} mm | '
+              f'axis-5 zero={interface.initial_position.insertion_zero_pulses} pulses | '
+              f'supplied encoder={initial_axis5_pulses} pulses (not read from hardware)', flush=True)
         print(f'Simulation Omega rotation mapping: {rotation_map} (before reference mapping)', flush=True)
+        print(f'Translation mapping: {translation_source}'
+              + (' (matches the robot branch direction and gain)' if translation is not None
+                 else ' (reference project default; differs from the robot branch)'), flush=True)
+        print('Rotation still differs by construction: the robot branch uses Omega wrist '
+              'joint deltas, this branch uses the reported rotation matrix.', flush=True)
         start = time.monotonic()
         last_received = None
         sequence = 0
@@ -77,15 +129,30 @@ def main():
                         'surgical_continuum_robot/remote_control_ex')
     parser.add_argument('--duration', type=float, default=0, help='0 runs until Ctrl+C.')
     parser.add_argument('--timeout', type=float, default=.2)
+    parser.add_argument('--initial-axis5-pulses', type=int, default=0,
+                        help='Actual axis-5 encoder count at simulation startup; default assumes 0. '
+                             'Combined with insertion_zero_pulses in --interface-config.')
     parser.add_argument('--rotation-map', choices=['swap-xz', 'original'], default='swap-xz',
-                        help='Simulation only: [Rx,Ry,Rz] -> [Rz,Ry,-Rx]; reverse Z after exchange.')
+                        help='Calibrated simulation local increments: [Rx,Ry,Rz] -> [Rz,Ry,Rx]. '
+                             'original bypasses this rotation adjustment.')
+    parser.add_argument('--translation-map', choices=['robot-branch', 'reference'],
+                        default='robot-branch', dest='translation_source',
+                        help='robot-branch matches the real branch direction and gain; '
+                             'reference restores the reference project default.')
+    # File-relative like --reference-root, so the entry point runs from any cwd.
+    parser.add_argument('--omega-config', type=Path, default=CONFIG_DIR/'omega_teleop.yaml',
+                        help='Read only for the robot-branch translation mapping.')
+    parser.add_argument('--interface-config', type=Path,
+                        default=CONFIG_DIR/'robot_interface_stop_priority_trial.yaml',
+                        help='Insertion zero reference and robot-branch translation frame.')
     args = parser.parse_args()
     if not np.isfinite(args.duration) or args.duration < 0:
         parser.error('duration must be finite and nonnegative')
     if not np.isfinite(args.timeout) or args.timeout <= 0:
         parser.error('timeout must be finite and positive')
     run(args.endpoint, args.visual_endpoint, args.reference_root, args.duration, args.timeout,
-        args.rotation_map)
+        args.rotation_map, args.translation_source, args.omega_config, args.interface_config,
+        args.initial_axis5_pulses)
 
 
 if __name__ == '__main__':

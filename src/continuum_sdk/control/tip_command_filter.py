@@ -78,6 +78,19 @@ class TipCommandFilter:
         self._target_rotation = self._applied_rotation.copy()
         self.rotation_command_limited = False
 
+    def recenter(self) -> None:
+        """Drop accumulated command offset; the current pose becomes the origin.
+
+        Command state only. The caller must re-anchor its own FK centre in the
+        same cycle, otherwise the next step would drive the accumulated offset
+        back out as real motion.
+        """
+        self._target_delta = np.zeros(3, dtype=float)
+        self._applied_delta = np.zeros(3, dtype=float)
+        self._target_rotation = np.zeros(3, dtype=float)
+        self._applied_rotation = np.zeros(3, dtype=float)
+        self.rotation_command_limited = False
+
     def step(self) -> np.ndarray:
         filtered_target = self._target_delta
         if self.config.smooth_alpha < 1.0:

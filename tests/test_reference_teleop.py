@@ -33,7 +33,8 @@ def test_reference_mapping_and_ik_match_direct_equations(ref):
         pos=np.array([n*1e-5,n*2e-5,-n*1e-5])
         angle=n*.001;c,s=np.cos(angle),np.sin(angle)
         rot=np.array([[c,-s,0],[s,c,0],[0,0,1]])
-        p += shared.mapper.position_map @ (pos-previous_p)
+        calibrated_delta = (pos-previous_p)[[0,2,1]] * [1,1,-1]
+        p += shared.mapper.config.position_scale * (shared.mapper.position_map @ calibrated_delta)
         r = r @ (shared.mapper.rotation_map @ (previous_r.T @ rot) @ shared.mapper.rotation_map.T)
         u,_,v=np.linalg.svd(r);r=u@v
         error=independent.task_error(independent.u,p,z_goal=r[:,2])
@@ -71,7 +72,7 @@ def test_invalid_and_replayed_input_leave_reference_unchanged(ref):
 
 @pytest.mark.parametrize('axis,mapped_axis', [(0,2),(1,1),(2,0)])
 @pytest.mark.parametrize('angle', [-.03,.03])
-def test_simulation_swaps_rx_rz_reverses_result_z_and_preserves_ry(ref, axis, mapped_axis, angle):
+def test_calibrated_simulation_rotation_preserves_ry_and_swaps_rx_rz(ref, axis, mapped_axis, angle):
     from continuum_sdk.kinematics.dls_ik import rotvec_to_matrix
     initial = np.array([.016,.08,.2,.04,-.1])
     swapped = ReferenceTeleop(ref, initial, swap_rotation_xz=True)
@@ -82,7 +83,8 @@ def test_simulation_swaps_rx_rz_reverses_result_z_and_preserves_ry(ref, axis, ma
     original.receive(message(0)); original.step()
     for n in range(1,5):
         delta = np.eye(3)[axis]*angle*n
-        expected_delta = np.eye(3)[mapped_axis]*angle*n*(-1 if mapped_axis == 2 else 1)
+        # Handle-X reversal followed by the existing permutation gives [rz,ry,rx].
+        expected_delta = np.eye(3)[mapped_axis]*angle*n
         swapped.receive(message(n, r=anchor @ rotvec_to_matrix(delta)))
         original.receive(message(n, r=rotvec_to_matrix(expected_delta)))
         actual = swapped.step(); expected = original.step()

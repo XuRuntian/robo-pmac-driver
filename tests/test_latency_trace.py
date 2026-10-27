@@ -49,11 +49,13 @@ def test_trace_dry_run_keeps_feedback_unknown_and_records_hold(tmp_path, monkeyp
     messages = iter([dict(protocol_version=1, kind="command", action=action), None,
                      dict(protocol_version=1, kind="hold"), None])
     def receive(_):
+        # One drained batch per control cycle; None marks an empty cycle.
         try:
-            return next(messages)
+            message = next(messages)
         except StopIteration:
             raise KeyboardInterrupt
-    monkeypatch.setattr(server, "_latest_message", receive)
+        return [] if message is None else [message]
+    monkeypatch.setattr(server, "_drain_messages", receive)
     server.main()
     with path.open(encoding="utf-8") as f:
         metadata = json.loads(f.readline()[2:])
@@ -118,9 +120,10 @@ def test_stop_priority_driver_cancels_static_input_and_reanchors_on_resume(tmp_p
         commands.append(dict(protocol_version=1,kind='command',action=action))
     messages=iter(commands)
     def receive(_):
-        try:return next(messages)
+        try:message=next(messages)
         except StopIteration:raise KeyboardInterrupt
-    monkeypatch.setattr(server,'_latest_message',receive)
+        return [] if message is None else [message]
+    monkeypatch.setattr(server,'_drain_messages',receive)
     server.main()
     with path.open(encoding='utf-8') as f:
         next(f);rows=list(csv.DictReader(f))
@@ -150,7 +153,7 @@ def test_rotary_jump_is_never_submitted_and_cleanup_precedes_evidence(tmp_path, 
         move_pvt_stream=lambda **kw:calls.append('submit'),
         protocol=SimpleNamespace())
     monkeypatch.setattr(server,'PMACRobotController',lambda _:fake)
-    monkeypatch.setattr(server,'_latest_message',lambda _:None)
+    monkeypatch.setattr(server,'_drain_messages',lambda _:[])
     original=server.ContinuumPVTMapper.build_command
     def corrupt(self,*args,**kwargs):
         result=original(self,*args,**kwargs)

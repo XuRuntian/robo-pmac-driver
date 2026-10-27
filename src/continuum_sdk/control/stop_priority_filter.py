@@ -86,6 +86,20 @@ class StopPriorityCommandFilter(TipCommandFilter):
         self._idle_elapsed = 0.
         self.input_holding = True
 
+    def recenter(self):
+        """Clear command offset and the input-tracking state together.
+
+        Leaves the filter held, so the stale operator input that arrives next
+        becomes a fresh anchor instead of an immediate jump.
+        """
+        super().recenter()
+        self._last_input = None
+        self._motion_anchor = None
+        self._motion_seen = False
+        self._idle_elapsed = 0.
+        self.input_holding = True
+        self.input_discarded = False
+
     def reanchor_from_tip(self, position, rotation, center_p, center_r, frame):
         """Cancel IK/execution debt while held, using committed-target FK.
 

@@ -23,6 +23,7 @@ from continuum_sdk.control.cartesian_frame import apply_axis_transform
 from continuum_sdk.control.pvt_mapper import ContinuumPVTMapper
 from continuum_sdk.control.tip_command_filter import TipCommandFilter
 from continuum_sdk.control.stop_priority_filter import StopPriorityCommandFilter
+from continuum_sdk.control.straighten_ramp import StraightenRamp
 from continuum_sdk.control.ik_limit_monitor import IKLimitMonitor
 from continuum_sdk.control.insertion_profile import InsertionProfile
 from continuum_sdk.core.config_loader import load_continuum_config
@@ -50,6 +51,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--wait-mode", choices=("system", "windows-highres"), default="system",
                         help="Wait backend for protocol polling and main loop; default keeps existing behavior.")
     parser.add_argument("--interface-config", default="config/robot_interface.yaml")
+    parser.add_argument("--reset-keys", action=argparse.BooleanOptionalAction, default=True,
+                        help="Listen for reset keys in this terminal; stop teleoperation first.")
+    parser.add_argument("--straighten-key", default="h",
+                        help="Key that unbends both segments while holding insertion depth.")
+    parser.add_argument("--recenter-key", default="r",
+                        help="Key that clears accumulated command offsets without moving.")
     parser.add_argument("--pmac-ip", default="192.168.0.200")
     parser.add_argument("--bind-host", default="127.0.0.1")
     parser.add_argument("--command-port", type=int, default=5555)
@@ -148,13 +155,39 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# One-shot control requests must survive conflation. Streamed pose commands are
+# superseded by the next one, but dropping a reset press loses the operator's
+# only way to ask for it, so those are queued instead of overwritten.
+_ONE_SHOT_KINDS = ("hold", "recenter", "straighten")
+
+
 def _latest_message(socket: zmq.Socket) -> dict[str, Any] | None:
-    latest = None
+    """Receive one pending message, or None when the socket is empty."""
+    try:
+        return socket.recv_json(flags=zmq.NOBLOCK)
+    except zmq.Again:
+        return None
+
+
+def _drain_messages(socket: zmq.Socket) -> list[dict[str, Any]]:
+    """Latest streamed command, preceded by every one-shot request received.
+
+    Returns them in arrival order so a reset pressed after a pose command is
+    still applied after it.
+    """
+    messages: list[dict[str, Any]] = []
     while True:
-        try:
-            latest = socket.recv_json(flags=zmq.NOBLOCK)
-        except zmq.Again:
-            return latest
+        message = _latest_message(socket)
+        if message is None:
+            # Nothing further is pending this cycle.
+            break
+        if isinstance(message, dict) and message.get("kind") in _ONE_SHOT_KINDS:
+            messages.append(message)
+        else:
+            # Keep only the newest streamed command, preserving its position.
+            messages = [m for m in messages
+                        if m.get("kind") in _ONE_SHOT_KINDS] + [message]
+    return messages
 
 
 def _state_from_feedback(
@@ -252,6 +285,119 @@ def _return_to_reference_pvt(
             time.sleep(remaining)
         else:
             tail_next_call = time.perf_counter()
+
+
+class ResetKeyListener:
+    """Watch for reset keys in the driver's own terminal.
+
+    The driver owns the PMAC connection, so a reset typed here needs no
+    teleoperation client and no second process touching the hardware. Keys are
+    recorded as a pending request and consumed by the control loop, because
+    pynput delivers callbacks on its own thread.
+    """
+
+    def __init__(self, straighten_key: str, recenter_key: str):
+        self.straighten_key = straighten_key.lower()
+        self.recenter_key = recenter_key.lower()
+        self.pending: str | None = None
+        self._listener = None
+
+    def start(self) -> str:
+        try:
+            from pynput import keyboard
+        except ImportError:
+            return ("Reset keys unavailable: pynput is not installed. "
+                    "Resets can still be sent over ZMQ.")
+
+        def on_press(key: Any) -> None:
+            try:
+                name = key.char.lower() if key.char else None
+            except AttributeError:
+                return
+            if name == self.straighten_key:
+                self.pending = "straighten"
+            elif name == self.recenter_key:
+                self.pending = "recenter"
+
+        self._listener = keyboard.Listener(on_press=on_press)
+        self._listener.start()
+        return (f"Reset keys active in this terminal: '{self.straighten_key}' "
+                f"straighten (unbends both segments, insertion held), "
+                f"'{self.recenter_key}' recenter (clears offsets, no motion).")
+
+    def take(self) -> str | None:
+        pending, self.pending = self.pending, None
+        return pending
+
+    def stop(self) -> None:
+        if self._listener is not None:
+            self._listener.stop()
+            self._listener = None
+
+
+def _within_reset_gate(
+    action: dict[str, float] | None,
+    gate: dict[str, float],
+    command_cfg: Any,
+) -> bool:
+    """True while the operator's input still matches its pre-reset value.
+
+    A reset throws away the accumulated offset. If the operator has not moved,
+    the same absolute offset keeps arriving, and applying it would snap the tip
+    back to exactly the pose the reset just left. Reuses the configured input
+    motion thresholds so the gate releases as soon as real motion appears.
+    """
+    if action is None:
+        return False
+    for axis in ("x", "y", "z"):
+        key = f"tip_delta_{axis}"
+        if abs(action[key] - gate[key]) > command_cfg.input_translation_epsilon_m:
+            return False
+    for axis in ("rx", "ry", "rz"):
+        key = f"tip_delta_{axis}"
+        if abs(action[key] - gate[key]) > command_cfg.input_rotation_epsilon_rad:
+            return False
+    return True
+
+
+def _reject_straighten_plan(
+    ramp: Any,
+    tendon_mapper: Any,
+    axis_mapper: ContinuumAxisMapper,
+    base_pulses: list[int],
+    previous_pulses: list[int],
+    previous_velocities: list[float],
+    rotary_guard: RotaryTargetGuard,
+    update_interval: float,
+) -> str | None:
+    """Return a reason string if the reset plan would trip the rotary guard.
+
+    The reset must not be the thing that ends a session, so the whole plan is
+    checked before the first segment is submitted. Pure computation.
+    """
+    previous = list(previous_pulses)
+    previous_velocity = list(previous_velocities)
+    previous_logical = axis_mapper.pulses_to_logical(base_pulses, previous)
+    for joint in ramp.plan():
+        logical = tendon_mapper.to_axis_targets(joint)
+        candidate = axis_mapper.logical_to_pulses(
+            base_pulses=base_pulses, logical_targets=logical,
+        )
+        velocity = axis_mapper.logical_velocity_to_pulses_per_ms(
+            axis_mapper.diff_velocity(
+                prev_targets=previous_logical, next_targets=logical, dt_s=update_interval,
+            )
+        )
+        try:
+            rotary_guard.check(previous, candidate, previous_velocity, velocity,
+                               update_interval)
+        except RotaryTargetJump as exc:
+            evidence = exc.evidence
+            return (f"physical axis {evidence['physical_axis']} would peak at "
+                    f"{evidence['peak_rad_s']:.3f} rad/s, above the "
+                    f"{evidence['threshold_rad_s']:.3f} rad/s stop threshold.")
+        previous, previous_velocity, previous_logical = candidate, velocity, logical
+    return None
 
 
 def _shape_from_logical_axes(tendon_mapper: Any, logical_axes: list[float]) -> dict[str, float]:
@@ -675,8 +821,11 @@ def main() -> None:
         cleanup.callback(context.term)
         command_socket = context.socket(zmq.PULL)
         cleanup.callback(command_socket.close)
-        command_socket.setsockopt(zmq.CONFLATE, 1)
-        command_socket.setsockopt(zmq.RCVHWM, 1)
+        # No CONFLATE here: it discards all but the newest message inside the
+        # socket, which silently drops one-shot resets sent while pose commands
+        # are streaming. _drain_messages does the conflation instead, keeping the
+        # newest pose command but every one-shot request.
+        command_socket.setsockopt(zmq.RCVHWM, 8)
         command_socket.setsockopt(zmq.LINGER, 0)
         command_socket.bind(f"tcp://{args.bind_host}:{args.command_port}")
 
@@ -698,6 +847,12 @@ def main() -> None:
         last_command_time: float | None = None
         watchdog_holding = True
         rejected_commands = 0
+        recenter_count = 0
+        straighten_count = 0
+        straighten_ramp = None
+        straighten_previous_logical = None
+        last_operator_action = None
+        reset_gate_action = None
         last_command_error = ""
         feedback_valid = True
         feedback_pulses = current_pulses.copy()
@@ -705,6 +860,13 @@ def main() -> None:
         last_target_velocities = [0.0]*5
         live_debug = LiveDiagnostic(sys.stdout)
         next_live_debug = 0.0
+        reset_keys = None
+        if args.reset_keys:
+            reset_keys = ResetKeyListener(args.straighten_key, args.recenter_key)
+            cleanup.callback(reset_keys.stop)
+            print(reset_keys.start())
+            print("Press the straighten key only after teleoperation has stopped: "
+                  "a live client keeps streaming its own pose commands.")
         previous_command = None
         trace_raw_action = {}
         trace_previous_start = None
@@ -761,15 +923,93 @@ def main() -> None:
                 trace_fresh = False
                 trace_submit_start = trace_submit_end = None
                 trace_receive_kind = ""
-                message = _latest_message(command_socket)
-                if message is not None:
+                pending_messages = _drain_messages(command_socket)
+                if reset_keys is not None:
+                    pressed = reset_keys.take()
+                    if pressed is not None:
+                        # Handle a local key press exactly like the wire request,
+                        # so there is one implementation of each reset.
+                        pending_messages.append(
+                            {"protocol_version": 1, "kind": pressed,
+                             "sequence": -1, "timestamp_ns": time.time_ns()})
+                for message in pending_messages:
                     try:
                         kind, action = parse_control_message(message)
                         if kind == "hold":
                             command_filter.hold()
                             watchdog_holding = True
+                        elif kind == "straighten":
+                            if straighten_ramp is not None:
+                                print("STRAIGHTEN already in progress; request ignored.",
+                                      flush=True)
+                            elif previous_command is None:
+                                print("STRAIGHTEN needs one completed control cycle "
+                                      "first; request ignored.", flush=True)
+                            else:
+                                candidate = StraightenRamp(
+                                    ik.u, update_interval,
+                                    interface_cfg.straighten_max_theta_rate_rad_s)
+                                if candidate.already_straight:
+                                    print("STRAIGHTEN skipped: both segments are "
+                                          "already straight.", flush=True)
+                                else:
+                                    # Verify the whole plan against the rotary stop
+                                    # threshold before moving, so a reset can never
+                                    # be the thing that ends the session.
+                                    rejected = _reject_straighten_plan(
+                                        candidate, tendon_mapper, axis_mapper,
+                                        base_pulses, last_target_pulses,
+                                        last_target_velocities, rotary_guard,
+                                        update_interval)
+                                    if rejected is not None:
+                                        print(f"STRAIGHTEN rejected before moving: "
+                                              f"{rejected} Lower "
+                                              f"execution.straighten_max_theta_rate_rad_s.",
+                                              flush=True)
+                                    else:
+                                        straighten_ramp = candidate
+                                        straighten_previous_logical = (
+                                            axis_mapper.pulses_to_logical(
+                                                base_pulses, last_target_pulses))
+                                        straighten_count += 1
+                                        command_filter.hold()
+                                        print(f"STRAIGHTEN #{straighten_count} | "
+                                              f"theta_a={math.degrees(ik.u[1]):.1f}deg "
+                                              f"theta_c={math.degrees(ik.u[3]):.1f}deg "
+                                              f"-> 0 over {candidate.duration_s:.2f}s; "
+                                              f"insertion d={ik.u[0]*1000:.2f}mm held.",
+                                              flush=True)
+                        elif kind == "recenter":
+                            # Software-only reset of the teleoperation data: drop the
+                            # accumulated WORLD offset and move the relative-command
+                            # origin to wherever the robot already is. The centre must
+                            # be re-anchored in the same cycle as the filter reset, or
+                            # step() would drive the discarded offset out as motion.
+                            command_filter.recenter()
+                            center_p, center_r = ik.fk_tip()
+                            ik_limit_monitor = IKLimitMonitor()
+                            recenter_count += 1
+                            watchdog_holding = True
+                            reset_gate_action = last_operator_action
+                            print(f"RECENTER #{recenter_count} | command state cleared, "
+                                  f"origin moved to the current pose. No motor motion "
+                                  f"commanded; encoders and base_pulses unchanged.",
+                                  flush=True)
+                        elif reset_gate_action is not None and _within_reset_gate(
+                                action, reset_gate_action, interface_cfg.command):
+                            # A reset discarded the operator's offset, but their
+                            # input has not moved yet, so applying it would drive
+                            # straight back to the pre-reset pose. Ignore it until
+                            # the operator actually moves, then resume from there.
+                            last_command_time = now
+                            trace_receive_kind = kind
+                            continue
                         else:
                             assert action is not None
+                            if reset_gate_action is not None:
+                                reset_gate_action = None
+                                print("Operator input moved; resuming from the "
+                                      "post-reset pose.", flush=True)
                             previously_limited = command_filter.rotation_command_limited
                             command_filter.set_command(action)
                             if command_filter.rotation_command_limited and not previously_limited and not args.live_debug:
@@ -777,6 +1017,7 @@ def main() -> None:
                                       f"driver range {interface_cfg.command.max_rotation_delta_rad} rad; "
                                       "this is a command cap, not a motor limit.", flush=True)
                             trace_raw_action = dict(action)
+                            last_operator_action = dict(action)
                             watchdog_holding = False
                         last_command_time = now
                         trace_receive_kind = kind
@@ -810,7 +1051,44 @@ def main() -> None:
                 )
                 trace_map_start = time.perf_counter() if latency_file else 0.0
                 diagnostic_previous_u = ik.u.copy() if args.live_debug else None
-                if execution_holding and previous_command is not None:
+                if straighten_ramp is not None:
+                    # Reset in progress: drive joints straight from a closed-form
+                    # ramp, bypassing IK and the operator's command entirely. d and
+                    # both phi are held, so only the four rotary axes move.
+                    straighten_u = straighten_ramp.step()
+                    straighten_logical = tendon_mapper.to_axis_targets(straighten_u)
+                    pvt_command = replace(
+                        previous_command,
+                        target_pulses=axis_mapper.logical_to_pulses(
+                            base_pulses=base_pulses,
+                            logical_targets=straighten_logical,
+                        ),
+                        velocities=axis_mapper.logical_velocity_to_pulses_per_ms(
+                            axis_mapper.diff_velocity(
+                                prev_targets=straighten_previous_logical,
+                                next_targets=straighten_logical,
+                                dt_s=update_interval,
+                            )
+                        ),
+                    )
+                    straighten_previous_logical = straighten_logical
+                    if straighten_ramp.done:
+                        # Re-seed IK and the command origin from the pose actually
+                        # reached, then clear command state so the operator's stale
+                        # offset cannot snap the tip back where it came from.
+                        pvt_mapper.commit_pulses(pvt_command.target_pulses)
+                        command_filter.recenter()
+                        center_p, center_r = ik.fk_tip()
+                        ik_limit_monitor = IKLimitMonitor()
+                        straighten_ramp = None
+                        watchdog_holding = True
+                        # Block the stale offset that is still streaming in, or the
+                        # tip would bend straight back to where the reset started.
+                        reset_gate_action = last_operator_action
+                        print("STRAIGHTEN complete | bend zeroed, insertion held; "
+                              "command state recentered at the straight pose.",
+                              flush=True)
+                elif execution_holding and previous_command is not None:
                     pvt_command = replace(
                         previous_command,
                         target_pulses=list(last_target_pulses),
@@ -859,7 +1137,10 @@ def main() -> None:
                 if insertion_profile is not None:
                     insertion_segment = insertion_profile.step(
                         pvt_command.target_pulses[linear_physical_idx],
-                        holding=execution_holding or args.lock_linear_axis,
+                        # A straighten reset holds d by construction, so the
+                        # insertion axis must brake rather than chase a target.
+                        holding=(execution_holding or args.lock_linear_axis
+                                 or straighten_ramp is not None),
                     )
                     pvt_command.target_pulses[linear_physical_idx] = insertion_segment.position
                     pvt_command.velocities[linear_physical_idx] = insertion_segment.velocity_counts_ms
@@ -947,6 +1228,9 @@ def main() -> None:
                         float(np.linalg.norm(ik_error[3:])) if ik_error.size > 3 else 0.0
                     ),
                     "rejected_commands": rejected_commands,
+                    "recenter_count": recenter_count,
+                    "straighten_count": straighten_count,
+                    "straighten_active": straighten_ramp is not None,
                     "last_command_error": last_command_error,
                 }
                 state_message = build_state_message(

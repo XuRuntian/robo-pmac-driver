@@ -62,16 +62,17 @@ def test_default_wrist_rotation_passes_to_driver_range(math_modules):
     )
     mapper.set_zero(np.zeros(3), np.eye(3), np.zeros(3))
     action = mapper.map_pose(np.zeros(3), np.eye(3), np.array([1., .8, -.9]))
-    assert action['tip_delta_rx'] == pytest.approx(.8)
+    assert action['tip_delta_rx'] == pytest.approx(.8*config.rotation.gain[0])
     assert action['tip_delta_ry'] == 0
-    assert action['tip_delta_rz'] == pytest.approx(-.9)
+    assert action['tip_delta_rz'] == pytest.approx(-.9*config.rotation.gain[2])
     cfg = load_robot_interface_config(ROOT/'config/robot_interface.yaml')
     filt = TipCommandFilter(cfg.command, .02)
     filt.set_command(action)
     assert not filt.rotation_command_limited
     for _ in range(300):
         filt.step()
-    np.testing.assert_allclose(filt.applied_rotation, [.8, 0, -.9], atol=1e-8)
+    np.testing.assert_allclose(filt.applied_rotation,
+                               [.8*config.rotation.gain[0], 0, -.9*config.rotation.gain[2]], atol=1e-8)
     filt.hold()
     assert not filt.rotation_command_limited
 
@@ -120,7 +121,7 @@ def test_wrist_joint_mapping(math_modules, monkeypatch, q, expected):
     for frame in (np.eye(3), rotation(1, 70)):
         action = mapper.map_pose(np.zeros(3), frame, q)
         cmd = [action[f"tip_delta_r{axis}"] for axis in "xyz"]
-        np.testing.assert_allclose(cmd, expected, atol=1e-8, rtol=0)
+        np.testing.assert_allclose(cmd, np.asarray(expected)*config.rotation.gain, atol=1e-8, rtol=0)
     dq = mapper.omega_joint_delta(q)
     np.testing.assert_allclose(dq, np.asarray(q) - q0, atol=1e-8, rtol=0)
     print(f"q={q} dq={dq.round(8)} cmd={np.round(cmd, 8)} rad")
@@ -147,7 +148,7 @@ def test_joint_rezero_and_translation_offset(math_modules, gain, displacement, e
     np.testing.assert_allclose([action[f"tip_delta_{a}"] for a in "xyz"], [expected, -expected, expected])
     np.testing.assert_allclose(mapper.control_position(np.zeros(3), frame), frame @ mapper.position_offset)
     q[2] += 0.1
-    assert mapper.map_pose(np.ones(3) * .001, frame, q)["tip_delta_rz"] == pytest.approx(.1)
+    assert mapper.map_pose(np.ones(3) * .001, frame, q)["tip_delta_rz"] == pytest.approx(.1*config.rotation.gain[2])
 
 
 def test_joint_read_startup_and_clutch_with_fake_sdk(math_modules):
@@ -198,15 +199,15 @@ def test_joint_read_startup_and_clutch_with_fake_sdk(math_modules):
     omega._raw_pose_publisher = SimpleNamespace(
         publish=lambda p, r, clutch: raw_samples.append((p.copy(), r.copy(), clutch)))
     current[1] += .1
-    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.1)
+    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.1*config.rotation.gain[0])
     pressed = True
     current[1] += .2
-    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.1)
+    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.1*config.rotation.gain[0])
     np.testing.assert_allclose(omega._mapper.omega_joint_delta(current), 0)
     pressed = False
-    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.1)
+    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.1*config.rotation.gain[0])
     current[1] += .05
-    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.15)
+    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.15*config.rotation.gain[0])
     assert [sample[2] for sample in raw_samples] == [False, True, False, False]
     for position, rotation_matrix, _ in raw_samples:
         np.testing.assert_array_equal(position, np.zeros(3))

@@ -24,7 +24,7 @@ frame:
 initial_position:
   # Axis 5 is manually homed before use. Preserve displacement from that zero
   # instead of treating each teleoperation startup as insertion d=0.
-  insertion_zero_pulses: 0
+  insertion_zero_pulses: -7000000
   # capture_current preserves the current behavior: startup feedback becomes
   # the logical actuator zero for this run.
   #
