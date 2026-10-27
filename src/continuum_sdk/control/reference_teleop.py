@@ -139,7 +139,8 @@ class ReferenceTeleop:
                 else:
                     delta = self._raw_rotation.T @ r
                     rotvec = Rotation.from_matrix(delta).as_rotvec()
-                    rotvec[0] *= -1.0  # Local handle-axis twist; not WORLD Rz.
+                    rotvec = rotvec[[0, 2, 1]]
+                    rotvec *= [-1.0, 1.0, 0.0]  # Local handle-axis twist; not WORLD Rz.
                     delta = Rotation.from_rotvec(rotvec).as_matrix()
                     permutation = np.array([[0.,0.,1.],[0.,1.,0.],[-1.,0.,0.]])
                     self._mapped_rotation = (self._mapped_rotation
