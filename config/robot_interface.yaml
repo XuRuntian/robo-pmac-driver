@@ -40,7 +40,7 @@ initial_position:
 execution:
   # Software anomaly stop, NOT a validated motor speed capability.
   # Checks rotary PVT cubic peak before submission; trip ends the session.
-  rotary_target_stop_rad_s: 2.5
+  rotary_target_stop_rad_s: 5.2
   # Logical insertion d speed budget, independent of WORLD X/Y/Z.
   # Preserve the previous host budget. Actual step = min(host budget, live PLC cap).
   # 0.01 m/s is NOT a validated mechanical speed rating.

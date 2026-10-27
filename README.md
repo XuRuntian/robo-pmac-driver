@@ -10,4 +10,7 @@
 
 LeRobot/Omega 的连接与使用见 [LeRobot integration](docs/lerobot_integration.md)。旧 `move_joints()` 点位协议未在配套 PLC 中实现，当前会明确拒绝；使用 PVT 服务或 PVT 应用入口。
 
+自动化回归使用 `./.venv/Scripts/python.exe -m pytest -q`，默认仅收集 `tests/`。
+`apps/test_*.py` 是按需运行的标定/调试工具；早期调用旧点位接口的三个电机示例及 `tests/test_omega.py` 手动主手脚本已移除。
+
 关节方向、近远端补偿标定及测试入口见 [关节标定记录](docs/joint_direction_calibration.md)。当前已统一修正 phi 方向和近端对远端的补偿符号；后续先验证键盘 WORLD 坐标，再标定 Omega 输入映射。

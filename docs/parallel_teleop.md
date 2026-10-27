@@ -234,6 +234,7 @@ ctrl 粗调、shift 细调,空格冻结,`p` 打印,esc 退出并停机。
 ./.venv/Scripts/python.exe -m pytest tests -q
 ```
 
-从仓库根直接运行 `pytest` 会在收集阶段失败：它会抓到
-`integrations/.../examples/smoke_test.py`，而该插件只装在 `D:/project/lerobot/.venv`。
-这是环境隔离的预期结果，使用上面的 `tests` 路径。
+pytest 默认仅收集 `tests/`，因此在仓库根运行 `python -m pytest -q` 也可。
+`apps/test_*.py` 和集成插件中的 `smoke_test.py` 是手动调试入口，不自动执行。
+已移除 3 个仍调用旧点位接口的电机示例，以及早期手动读主手的
+`tests/test_omega.py`；协议、轴映射、IK、PVT 保护及遥操作回归测试保留。
