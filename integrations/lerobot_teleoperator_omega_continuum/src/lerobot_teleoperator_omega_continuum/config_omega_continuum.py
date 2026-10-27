@@ -9,6 +9,8 @@ from lerobot.teleoperators.config import TeleoperatorConfig
 @dataclass
 class OmegaContinuumConfig(TeleoperatorConfig):
     simulate: bool = False
+    # Optional raw-pose broadcast for independent simulation; no robot commands.
+    raw_pose_endpoint: str = ""
     omega_config: str = "config/omega_teleop.yaml"
     # Deprecated CLI compatibility overrides. New deployments should leave these unset.
     scale_x: float | None = None
@@ -19,18 +21,19 @@ class OmegaContinuumConfig(TeleoperatorConfig):
     position_offset_x: float = 0.0
     position_offset_y: float = 0.0
     position_offset_z: float = 0.0
-    max_delta_x: float = 0.03
-    max_delta_y: float = 0.01
-    max_delta_z: float = 0.03
+    max_delta_x: float | None = None
+    max_delta_y: float | None = None
+    max_delta_z: float | None = None
     deadband_m: float = 0.0003
     rotation_scale_x: float | None = None
     # External/world Ry maps to disabled continuum Rz; world Rz maps to
     # continuum -Ry and is the supported second tilt axis.
     rotation_scale_y: float | None = None
     rotation_scale_z: float | None = None
-    max_rotation_x: float = 0.45
+    # Optional legacy device-side caps. Robot command ranges belong to driver.
+    max_rotation_x: float | None = None
     max_rotation_y: float = 0.0
-    max_rotation_z: float = 0.45
+    max_rotation_z: float | None = None
     rotation_deadband_rad: float = 0.01
     zero_samples: int = 20
     zero_sample_period_s: float = 0.005
@@ -55,15 +58,16 @@ class OmegaContinuumConfig(TeleoperatorConfig):
             for value in (self.position_offset_x, self.position_offset_y, self.position_offset_z)
         ):
             raise ValueError("position offsets must be finite.")
-        if any(value < 0.0 for value in (self.max_delta_x, self.max_delta_y, self.max_delta_z)):
-            raise ValueError("Omega maximum deltas must be non-negative.")
+        if any(value is not None and (not np.isfinite(value) or value < 0.0)
+               for value in (self.max_delta_x, self.max_delta_y, self.max_delta_z)):
+            raise ValueError("Omega maximum deltas must be finite and non-negative, or None.")
         if self.deadband_m < 0.0:
             raise ValueError("deadband_m must be non-negative.")
         if any(
-            value < 0.0
+            value is not None and (not np.isfinite(value) or value < 0.0)
             for value in (self.max_rotation_x, self.max_rotation_y, self.max_rotation_z)
         ):
-            raise ValueError("Omega maximum rotations must be non-negative.")
+            raise ValueError("Omega maximum rotations must be finite and non-negative, or None.")
         if self.rotation_deadband_rad < 0.0:
             raise ValueError("rotation_deadband_rad must be non-negative.")
         if self.zero_samples <= 0:

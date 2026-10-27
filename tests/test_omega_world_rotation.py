@@ -2,6 +2,7 @@
 import ast
 import importlib
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -51,6 +52,31 @@ def make_mapper(mapping, config):
     )
 
 
+def test_default_wrist_rotation_passes_to_driver_range(math_modules):
+    from continuum_sdk.core.interface_config import load_robot_interface_config
+    from continuum_sdk.control.tip_command_filter import TipCommandFilter
+    mapping, config = math_modules
+    mapper = mapping.OmegaContinuumMapper(
+        translation_config=config.translation, rotation_config=config.rotation,
+        max_delta_xyz=(.03, .01, .03), deadband_m=0,
+    )
+    mapper.set_zero(np.zeros(3), np.eye(3), np.zeros(3))
+    action = mapper.map_pose(np.zeros(3), np.eye(3), np.array([1., .8, -.9]))
+    assert action['tip_delta_rx'] == pytest.approx(.8*config.rotation.gain[0])
+    assert action['tip_delta_ry'] == 0
+    assert action['tip_delta_rz'] == pytest.approx(-.9*config.rotation.gain[2])
+    cfg = load_robot_interface_config(ROOT/'config/robot_interface.yaml')
+    filt = TipCommandFilter(cfg.command, .02)
+    filt.set_command(action)
+    assert not filt.rotation_command_limited
+    for _ in range(300):
+        filt.step()
+    np.testing.assert_allclose(filt.applied_rotation,
+                               [.8*config.rotation.gain[0], 0, -.9*config.rotation.gain[2]], atol=1e-8)
+    filt.hold()
+    assert not filt.rotation_command_limited
+
+
 @pytest.mark.parametrize("axis", [0, 1, 2])
 def test_world_axis_rotation(math_modules, axis):
     # Retained SO(3) utility test, no longer the active teleoperation strategy.
@@ -95,14 +121,20 @@ def test_wrist_joint_mapping(math_modules, monkeypatch, q, expected):
     for frame in (np.eye(3), rotation(1, 70)):
         action = mapper.map_pose(np.zeros(3), frame, q)
         cmd = [action[f"tip_delta_r{axis}"] for axis in "xyz"]
-        np.testing.assert_allclose(cmd, expected, atol=1e-8, rtol=0)
+        np.testing.assert_allclose(cmd, np.asarray(expected)*config.rotation.gain, atol=1e-8, rtol=0)
     dq = mapper.omega_joint_delta(q)
     np.testing.assert_allclose(dq, np.asarray(q) - q0, atol=1e-8, rtol=0)
     print(f"q={q} dq={dq.round(8)} cmd={np.round(cmd, 8)} rad")
 
 
-def test_joint_rezero_and_translation_offset(math_modules):
+@pytest.mark.parametrize("gain, displacement, expected", [
+    (0.5, 0.001, 0.0005),
+    (0.25, 0.001, 0.0),  # Scaled displacement is inside the 0.3 mm deadband.
+    (0.25, 0.002, 0.0005),
+])
+def test_joint_rezero_and_translation_offset(math_modules, gain, displacement, expected):
     mapping, config = math_modules
+    config = replace(config, translation=replace(config.translation, gain=(gain,) * 3))
     mapper = make_mapper(mapping, config)
     mapper.position_offset = np.array([0.001, 0.002, 0.003])
     q = np.array([0.3, -0.4, 0.7])
@@ -112,11 +144,11 @@ def test_joint_rezero_and_translation_offset(math_modules):
     frame = rotation(2, 30)
     mapper.set_zero(np.ones(3) * .001, frame, q)
     np.testing.assert_allclose(mapper.omega_joint_delta(q), 0, atol=1e-8)
-    action = mapper.map_pose(np.ones(3) * .002, frame, q)
-    np.testing.assert_allclose([action[f"tip_delta_{a}"] for a in "xyz"], [.0005, -.0005, .0005])
+    action = mapper.map_pose(np.ones(3) * (.001 + displacement), frame, q)
+    np.testing.assert_allclose([action[f"tip_delta_{a}"] for a in "xyz"], [expected, -expected, expected])
     np.testing.assert_allclose(mapper.control_position(np.zeros(3), frame), frame @ mapper.position_offset)
     q[2] += 0.1
-    assert mapper.map_pose(np.ones(3) * .001, frame, q)["tip_delta_rz"] == pytest.approx(.1)
+    assert mapper.map_pose(np.ones(3) * .001, frame, q)["tip_delta_rz"] == pytest.approx(.1*config.rotation.gain[2])
 
 
 def test_joint_read_startup_and_clutch_with_fake_sdk(math_modules):
@@ -135,6 +167,9 @@ def test_joint_read_startup_and_clutch_with_fake_sdk(math_modules):
         max_delta_x=.03, max_delta_y=.01, max_delta_z=.03,
         max_rotation_x=.45, max_rotation_y=0, max_rotation_z=.45,
     )
+    omega.config.max_rotation_x = omega.config.max_rotation_z = None
+    np.testing.assert_allclose(omega._clip_action(np.array([0,0,0,.8,1,-.9])), [0,0,0,.8,0,-.9])
+    omega.config.max_rotation_x = omega.config.max_rotation_z = .45
     samples = iter([[.2, -.4, .7], [.4, -.4, .7]])
     current = np.array([.3, -.4, .7])
     def get_angles(out):
@@ -160,16 +195,23 @@ def test_joint_read_startup_and_clutch_with_fake_sdk(math_modules):
     omega._action_anchor = np.zeros(6)
     omega._last_action = np.zeros(6)
     omega._maybe_print_axis_debug = lambda *args: None
+    raw_samples = []
+    omega._raw_pose_publisher = SimpleNamespace(
+        publish=lambda p, r, clutch: raw_samples.append((p.copy(), r.copy(), clutch)))
     current[1] += .1
-    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.1)
+    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.1*config.rotation.gain[0])
     pressed = True
     current[1] += .2
-    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.1)
+    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.1*config.rotation.gain[0])
     np.testing.assert_allclose(omega._mapper.omega_joint_delta(current), 0)
     pressed = False
-    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.1)
+    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.1*config.rotation.gain[0])
     current[1] += .05
-    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.15)
+    assert omega.get_action()["tip_delta_rx"] == pytest.approx(.15*config.rotation.gain[0])
+    assert [sample[2] for sample in raw_samples] == [False, True, False, False]
+    for position, rotation_matrix, _ in raw_samples:
+        np.testing.assert_array_equal(position, np.zeros(3))
+        np.testing.assert_array_equal(rotation_matrix, np.eye(3))
     omega._dhd.getOrientationRad = lambda out: -1
     with pytest.raises(RuntimeError, match="wrist joints"):
         omega._read_joint_angles()
@@ -191,3 +233,25 @@ def test_joint_diagnostic_single_line():
         assert len(text[5:]) < width and kwargs == dict(end="", flush=True)
         if width >= 80:
             assert "cmd=[+0.100,+0.000,+0.000]" in text
+
+
+def test_uncapped_translation_and_post_clutch_anchor(math_modules):
+    mapping, config = math_modules
+    mapper = mapping.OmegaContinuumMapper(
+        translation_config=config.translation, rotation_config=config.rotation,
+        max_delta_xyz=(None, None, None), deadband_m=0)
+    mapper.set_zero(np.zeros(3), np.eye(3), np.zeros(3))
+    position = np.array([.3, -.4, .5])
+    action = mapper.map_pose(position, np.eye(3), np.zeros(3))
+    expected = np.array([-.4, -.3, .5]) * np.array(config.translation.gain)
+    np.testing.assert_allclose([action['tip_delta_'+k] for k in 'xyz'], expected)
+    source = ast.parse((PLUGIN/'omega_continuum.py').read_text(encoding='utf-8'))
+    cls = next(n for n in source.body if isinstance(n, ast.ClassDef) and n.name=='OmegaContinuum')
+    fn = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name=='_clip_action')
+    env = dict(np=np)
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), 'clip_only', 'exec'), env)
+    cfg = SimpleNamespace(max_delta_x=None, max_delta_y=None, max_delta_z=None,
+                          max_rotation_x=None, max_rotation_y=0., max_rotation_z=None)
+    value = np.array([.1, -.2, .3, .8, .4, -.9])
+    np.testing.assert_allclose(env['_clip_action'](SimpleNamespace(config=cfg),value),
+                              [.1,-.2,.3,.8,0,-.9])

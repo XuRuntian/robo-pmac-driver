@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Literal
 
@@ -70,10 +71,14 @@ class CartesianCommandConfig:
     max_delta_m: tuple[float, float, float]
     max_speed_m_s: tuple[float, float, float]
     orientation_enabled: bool
-    max_rotation_delta_rad: tuple[float, float, float]
+    max_rotation_delta_rad: tuple[float | None, float | None, float | None]
     max_angular_speed_rad_s: tuple[float, float, float]
     deadband_m: float
     smooth_alpha: float
+    stop_priority: bool = False
+    input_idle_timeout_s: float = 0.12
+    input_translation_epsilon_m: float = 0.00005
+    input_rotation_epsilon_rad: float = 0.001
 
 
 @dataclass(frozen=True)
@@ -92,6 +97,33 @@ class RobotInterfaceConfig:
     frame: CartesianFrameConfig
     initial_position: InitialPositionConfig
     command: CartesianCommandConfig
+    insertion_max_speed_m_s: float | None = None
+    insertion_max_accel_m_s2: float | None = None
+    insertion_error_stop_m: float | None = None
+    rotary_target_stop_rad_s: float | None = None
+    rotary_feasible_ik: bool = False
+    # Bend rate used by the straighten reset. Conservative by default: a 90 deg
+    # bend unwinds in about 3 s, and the plan is guard-checked before moving.
+    straighten_max_theta_rate_rad_s: float = 0.5
+
+    def insertion_step_limit(self, pulses_per_meter: float, dt_s: float,
+                             controller_max_step: int | None = None) -> float:
+        """Independent logical insertion budget, intersected with the live PLC cap.
+
+        This remains a per-axis guard, NOT coordinated trajectory limiting.
+        Missing execution limits are rejected before opening hardware by driver.
+        """
+        speed = self.insertion_max_speed_m_s
+        if speed is None:
+            raise ValueError('Set execution.insertion_max_speed_m_s explicitly; WORLD Z speed is not an insertion limit.')
+        if any(not math.isfinite(v) or v <= 0 for v in (speed, pulses_per_meter, dt_s)):
+            raise ValueError('Insertion speed, pulse scale, and period must be finite and positive.')
+        limit = speed * pulses_per_meter * dt_s
+        if controller_max_step is not None:
+            if not math.isfinite(controller_max_step) or controller_max_step <= 0:
+                raise ValueError('Controller insertion step limit must be finite and positive.')
+            limit = min(limit, controller_max_step)
+        return limit
 
 
 def load_robot_interface_config(
@@ -133,14 +165,27 @@ def load_robot_interface_config(
         max_speed_m_s=tuple(float(value) for value in command_raw["max_speed_m_s"]),
         orientation_enabled=bool(command_raw.get("orientation_enabled", False)),
         max_rotation_delta_rad=tuple(
-            float(value) for value in command_raw.get("max_rotation_delta_rad", (0.0, 0.0, 0.0))
+            None if value is None else float(value) for value in command_raw.get("max_rotation_delta_rad", (0.0, 0.0, 0.0))
         ),
         max_angular_speed_rad_s=tuple(
             float(value) for value in command_raw.get("max_angular_speed_rad_s", (0.0, 0.0, 0.0))
         ),
         deadband_m=float(command_raw["deadband_m"]),
         smooth_alpha=float(command_raw["smooth_alpha"]),
+        stop_priority=command_raw.get("stop_priority", False),
+        input_idle_timeout_s=float(command_raw.get("input_idle_timeout_s", 0.12)),
+        input_translation_epsilon_m=float(command_raw.get("input_translation_epsilon_m", 0.00005)),
+        input_rotation_epsilon_rad=float(command_raw.get("input_rotation_epsilon_rad", 0.001)),
     )
+    if not isinstance(command.stop_priority, bool):
+        raise ValueError("command.stop_priority must be a boolean.")
+    if any(not math.isfinite(v) or v <= 0 for v in (
+        command.input_idle_timeout_s, command.input_translation_epsilon_m,
+        command.input_rotation_epsilon_rad,
+    )):
+        raise ValueError("Input idle timeout and motion thresholds must be finite and positive.")
+    if command.stop_priority and command.smooth_alpha <= 0:
+        raise ValueError("stop_priority requires smooth_alpha > 0.")
     if any(
         len(values) != 3
         for values in (
@@ -159,12 +204,13 @@ def load_robot_interface_config(
         raise ValueError("max_delta_m values must be non-negative.")
     if any(value < 0.0 for value in command.max_speed_m_s):
         raise ValueError("max_speed_m_s values must be non-negative.")
-    if any(value < 0.0 for value in command.max_rotation_delta_rad):
-        raise ValueError("max_rotation_delta_rad values must be non-negative.")
+    if any(value is not None and (not math.isfinite(value) or value < 0.0)
+           for value in command.max_rotation_delta_rad):
+        raise ValueError("max_rotation_delta_rad values must be finite and non-negative, or null.")
     if any(value < 0.0 for value in command.max_angular_speed_rad_s):
         raise ValueError("max_angular_speed_rad_s values must be non-negative.")
     if command.orientation_enabled and (
-        not any(command.max_rotation_delta_rad)
+        not any(value is None or value > 0 for value in command.max_rotation_delta_rad)
         or not any(command.max_angular_speed_rad_s)
     ):
         raise ValueError(
@@ -184,10 +230,46 @@ def load_robot_interface_config(
             "frame.rotation_signs",
         ),
     )
+    if command.stop_priority and command.orientation_enabled:
+        roll_axis = "xyz".index(frame.rotation_map[2])
+        if (command.max_rotation_delta_rad[roll_axis] != 0 or
+                any(command.max_rotation_delta_rad[i] == 0 for i in range(3) if i != roll_axis)):
+            raise ValueError("stop_priority requires two tilt axes enabled and local roll disabled.")
 
+    execution_raw = raw.get("execution", {})
+    rotary_feasible_ik = execution_raw.get('rotary_feasible_ik', False)
+    if not isinstance(rotary_feasible_ik, bool):
+        raise ValueError('execution.rotary_feasible_ik must be a boolean.')
+    speed_raw = execution_raw.get("insertion_max_speed_m_s")
+    insertion_speed = None if speed_raw is None else float(speed_raw)
+    if insertion_speed is not None and (not math.isfinite(insertion_speed) or insertion_speed <= 0):
+        raise ValueError('execution.insertion_max_speed_m_s must be finite and positive.')
+    accel_raw = execution_raw.get("insertion_max_accel_m_s2")
+    insertion_accel = None if accel_raw is None else float(accel_raw)
+    if insertion_accel is not None and (not math.isfinite(insertion_accel) or insertion_accel <= 0):
+        raise ValueError('execution.insertion_max_accel_m_s2 must be finite and positive.')
+    if command.stop_priority and (insertion_speed is None or insertion_accel is None):
+        raise ValueError('stop_priority requires the insertion speed/acceleration profile.')
+    error_raw = execution_raw.get("insertion_error_stop_m")
+    insertion_error = None if error_raw is None else float(error_raw)
+    if insertion_error is not None and (not math.isfinite(insertion_error) or insertion_error <= 0):
+        raise ValueError('execution.insertion_error_stop_m must be finite and positive.')
+    rotary_raw = execution_raw.get("rotary_target_stop_rad_s")
+    rotary_stop = None if rotary_raw is None else float(rotary_raw)
+    if rotary_stop is not None and (not math.isfinite(rotary_stop) or rotary_stop <= 0):
+        raise ValueError('execution.rotary_target_stop_rad_s must be finite and positive.')
+    straighten_rate = float(execution_raw.get("straighten_max_theta_rate_rad_s", 0.5))
+    if not math.isfinite(straighten_rate) or straighten_rate <= 0:
+        raise ValueError('execution.straighten_max_theta_rate_rad_s must be finite and positive.')
     return RobotInterfaceConfig(
         control_hz=int(raw["control_hz"]),
         frame=frame,
         initial_position=initial,
         command=command,
+        insertion_max_speed_m_s=insertion_speed,
+        insertion_max_accel_m_s2=insertion_accel,
+        insertion_error_stop_m=insertion_error,
+        rotary_target_stop_rad_s=rotary_stop,
+        rotary_feasible_ik=rotary_feasible_ik,
+        straighten_max_theta_rate_rad_s=straighten_rate,
     )

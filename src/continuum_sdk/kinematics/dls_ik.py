@@ -1,6 +1,6 @@
 import math
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Callable, Literal
 
 import numpy as np
 
@@ -163,8 +163,17 @@ class DLSIK:
         self.u = np.zeros(5, dtype=float) if u is None else self._clip_u(np.asarray(u, dtype=float))
 
     def fk_tip(self, u: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+        return self._fk_tip_geometry(self._clip_u(np.asarray(self.u if u is None else u, dtype=float)))
+
+    def _fk_tip_geometry(self, u: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Smooth bending geometry; feasibility is enforced by solver candidates.
+
+        Private extension outside angular bounds for numerical differentiation.
+        Public FK still clamps, and this function never accepts an executable target.
+        Sheath partitioning retains its physical, piecewise insertion geometry.
+        """
         g = self.geometry
-        d, th_a, ph_a, th_c, ph_c = self._clip_u(np.asarray(self.u if u is None else u, dtype=float))
+        d, th_a, ph_a, th_c, ph_c = u
 
         # Geometry is expressed directly in the corrected robot frame:
         # +X right, +Y down, +Z forward/insertion.  The previous model used
@@ -179,14 +188,12 @@ class DLSIK:
             segment_a_inside, segment_c_inside = g.sheath_partition_lengths(d)
             length_a = g.s_a - segment_a_inside
             length_c = g.s_c - segment_c_inside
-            cap_a, cap_c = g.curvature_caps(d)
         else:
             length_a = g.s_a
             length_c = g.s_c
-            cap_a, cap_c = g.theta_a_max, g.theta_c_max
 
-        th_a_eff = float(np.clip(th_a, 0.0, cap_a))
-        th_c_eff = float(np.clip(th_c, 0.0, cap_c))
+        th_a_eff = float(th_a)
+        th_c_eff = float(th_c)
 
         r_a, p_a = const_curv_segment_rp(length_a, th_a_eff, ph_a)
         p = p + r @ p_a
@@ -207,13 +214,15 @@ class DLSIK:
         r_goal: np.ndarray | None = None,
         z_goal: np.ndarray | None = None,
         max_steps: int = 5,
+        candidate_validator: Callable[[np.ndarray], bool] | None = None,
     ) -> IKResult:
         self._limit_attempts = {}
         err = None
         du = np.zeros(5, dtype=float)
 
         for _ in range(max_steps):
-            err, du = self.step(p_goal=p_goal, r_goal=r_goal, z_goal=z_goal)
+            err, du = self.step(p_goal=p_goal, r_goal=r_goal, z_goal=z_goal,
+                                candidate_validator=candidate_validator)
             if self.has_converged(err):
                 break
 
@@ -250,6 +259,7 @@ class DLSIK:
         p_goal: np.ndarray,
         r_goal: np.ndarray | None = None,
         z_goal: np.ndarray | None = None,
+        candidate_validator: Callable[[np.ndarray], bool] | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         g = self.geometry
         d_range = (g.d_min, g.d_max)
@@ -283,11 +293,25 @@ class DLSIK:
         accepted = False
 
         scale = 1.0
-        for _ in range(max(0, int(self.line_search_steps))):
+        # Only extend the search after a task-improving trial fails execution
+        # feasibility. Otherwise preserve the original solver's search budget.
+        # The validator stays anchored to the last committed segment.
+        base_trials = max(0, int(self.line_search_steps))
+        feasibility_rejected = False
+        trials = base_trials + (4 if candidate_validator is not None else 0)
+        for trial in range(trials):
+            if trial >= base_trials and not feasibility_rejected:
+                break
             self._record_limit_attempt(qu + scale * dqu, d_range, cap_a, cap_c)
             qu_try = clamp_qu(qu + scale * dqu, d_range, cap_a, cap_c)
             e_try = self._task_qu(qu_try, p_goal, r_goal, z_goal)
             err_try = float(np.linalg.norm(e_try))
+
+            if (err_try < best_err and candidate_validator is not None
+                    and not candidate_validator(self._clip_u(qu_to_u(qu_try)))):
+                feasibility_rejected = True
+                scale *= 0.5
+                continue
 
             if err_try < best_err:
                 best_qu = qu_try
@@ -325,7 +349,8 @@ class DLSIK:
                 qu_try = clamp_qu(qu + gradient_update, d_range, cap_a, cap_c)
                 e_try = self._task_qu(qu_try, p_goal, r_goal, z_goal)
                 err_try = float(np.linalg.norm(e_try))
-                if err_try < best_err - 1e-9:
+                if (err_try < best_err - 1e-9 and
+                        (candidate_validator is None or candidate_validator(self._clip_u(qu_to_u(qu_try))))):
                     best_qu = qu_try
                     best_err = err_try
 
@@ -360,8 +385,9 @@ class DLSIK:
         p_goal: np.ndarray,
         r_goal: np.ndarray | None,
         z_goal: np.ndarray | None,
+        *, geometry_only: bool = False,
     ) -> np.ndarray:
-        return self._task_u(qu_to_u(qu), p_goal, r_goal, z_goal)
+        return self._task_u(qu_to_u(qu), p_goal, r_goal, z_goal, geometry_only=geometry_only)
 
     def _task_u(
         self,
@@ -369,8 +395,9 @@ class DLSIK:
         p_goal: np.ndarray,
         r_goal: np.ndarray | None,
         z_goal: np.ndarray | None,
+        *, geometry_only: bool = False,
     ) -> np.ndarray:
-        p, r = self.fk_tip(u)
+        p, r = self._fk_tip_geometry(u) if geometry_only else self.fk_tip(u)
         e_pos = self.w_pos * (np.asarray(p_goal, dtype=float) - p)
 
         if self.task_mode == "position":
@@ -399,31 +426,26 @@ class DLSIK:
         r_goal: np.ndarray | None,
         z_goal: np.ndarray | None,
     ) -> tuple[np.ndarray, np.ndarray]:
+        # Differentiate geometry, not the projection onto coupled bending disks.
+        # Projecting a probe changes multiple coordinates and is not a partial
+        # derivative. Constraint projection remains in step()/line search.
         g = self.geometry
-        f0 = self._task_qu(qu, p_goal, r_goal, z_goal)
+        f0 = self._task_qu(qu, p_goal, r_goal, z_goal, geometry_only=True)
         j = np.zeros((f0.size, qu.size), dtype=float)
-        cap_a, cap_c = g.curvature_caps(float(qu[0]))
-        eps_j = np.asarray(self.eps_j, dtype=float)
-
-        for k in range(qu.size):
+        for k, h in enumerate(np.asarray(self.eps_j, dtype=float)):
             q1 = qu.copy()
-            q1[k] += eps_j[k]
-            q1 = clamp_qu(q1, (g.d_min, g.d_max), cap_a, cap_c)
-
+            q1[k] += h
+            if k == 0:
+                # Insertion may change sheath partition lengths; keep its probe
+                # feasible, including backward differences at the upper bound.
+                q1[0] = np.clip(q1[0], g.d_min, g.d_max)
+                if abs(q1[0] - qu[0]) < 1e-12:
+                    q1[0] = np.clip(qu[0] - h, g.d_min, g.d_max)
             denom = q1[k] - qu[k]
             if abs(denom) < 1e-12:
-                # At an upper limit the positive perturbation is clipped away.
-                # Differentiate in the feasible direction so the joint can retreat.
-                q1 = qu.copy()
-                q1[k] -= eps_j[k]
-                q1 = clamp_qu(q1, (g.d_min, g.d_max), cap_a, cap_c)
-                denom = q1[k] - qu[k]
-            if abs(denom) < 1e-12:
                 continue
-
-            f1 = self._task_qu(q1, p_goal, r_goal, z_goal)
+            f1 = self._task_qu(q1, p_goal, r_goal, z_goal, geometry_only=True)
             j[:, k] = (f1 - f0) / denom
-
         return j, f0
 
     def _clip_u(self, u: np.ndarray) -> np.ndarray:

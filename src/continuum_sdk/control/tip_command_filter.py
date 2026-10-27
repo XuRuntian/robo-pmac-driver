@@ -14,11 +14,14 @@ class TipCommandFilter:
             raise ValueError("update_interval_s must be positive.")
 
         self.config = config
+        self._rotation_caps = np.asarray([np.inf if v is None else v
+                                          for v in config.max_rotation_delta_rad], dtype=float)
         self.update_interval_s = float(update_interval_s)
         self._target_delta = np.zeros(3, dtype=float)
         self._applied_delta = np.zeros(3, dtype=float)
         self._target_rotation = np.zeros(3, dtype=float)
         self._applied_rotation = np.zeros(3, dtype=float)
+        self.rotation_command_limited = False
 
     @property
     def applied_delta(self) -> np.ndarray:
@@ -41,10 +44,12 @@ class TipCommandFilter:
         if not self.config.orientation_enabled and np.any(np.abs(rotation) > 1e-12):
             raise ValueError("Non-zero rotation commands are disabled by the robot interface config.")
         if self.config.orientation_enabled:
+            self.rotation_command_limited = bool(np.any(
+                np.abs(rotation) > self._rotation_caps))
             rotation = np.clip(
                 rotation,
-                -np.asarray(self.config.max_rotation_delta_rad, dtype=float),
-                np.asarray(self.config.max_rotation_delta_rad, dtype=float),
+                -self._rotation_caps,
+                self._rotation_caps,
             )
         else:
             rotation.fill(0.0)
@@ -71,6 +76,20 @@ class TipCommandFilter:
         """Stop progressing toward a stale target without jumping back to neutral."""
         self._target_delta = self._applied_delta.copy()
         self._target_rotation = self._applied_rotation.copy()
+        self.rotation_command_limited = False
+
+    def recenter(self) -> None:
+        """Drop accumulated command offset; the current pose becomes the origin.
+
+        Command state only. The caller must re-anchor its own FK centre in the
+        same cycle, otherwise the next step would drive the accumulated offset
+        back out as real motion.
+        """
+        self._target_delta = np.zeros(3, dtype=float)
+        self._applied_delta = np.zeros(3, dtype=float)
+        self._target_rotation = np.zeros(3, dtype=float)
+        self._applied_rotation = np.zeros(3, dtype=float)
+        self.rotation_command_limited = False
 
     def step(self) -> np.ndarray:
         filtered_target = self._target_delta
@@ -102,8 +121,8 @@ class TipCommandFilter:
         )
         self._applied_rotation = np.clip(
             self._applied_rotation + rotation_step,
-            -np.asarray(self.config.max_rotation_delta_rad, dtype=float),
-            np.asarray(self.config.max_rotation_delta_rad, dtype=float),
+            -self._rotation_caps,
+            self._rotation_caps,
         )
         return self._applied_delta.copy()
 

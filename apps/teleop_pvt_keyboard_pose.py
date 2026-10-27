@@ -11,7 +11,12 @@ from typing import Any
 import zmq
 from pynput import keyboard
 
-from continuum_sdk.transport.zmq_protocol import build_command_message, build_hold_message
+from continuum_sdk.transport.zmq_protocol import (
+    build_command_message,
+    build_hold_message,
+    build_recenter_message,
+    build_straighten_message,
+)
 from continuum_sdk.kinematics.joint_motor_model import MotorAngles
 
 
@@ -101,7 +106,21 @@ class KeyboardDevice:
     def __init__(self) -> None:
         self.pressed: set[str] = set()
         self.stop_requested = False
+        self.recenter_requested = False
+        self.straighten_requested = False
         self.listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
+
+    def take_recenter_request(self) -> bool:
+        """Consume a pending recenter press, so one press fires one reset."""
+        requested = self.recenter_requested
+        self.recenter_requested = False
+        return requested
+
+    def take_straighten_request(self) -> bool:
+        """Consume a pending straighten press, so one press fires one reset."""
+        requested = self.straighten_requested
+        self.straighten_requested = False
+        return requested
 
     @staticmethod
     def key_name(key) -> str | None:
@@ -116,6 +135,11 @@ class KeyboardDevice:
         name = self.key_name(key)
         if name == "esc":
             self.stop_requested = True
+        elif name == "r":
+            # Edge-triggered: one reset per press, not once per held frame.
+            self.recenter_requested = True
+        elif name == "h":
+            self.straighten_requested = True
         elif name is not None:
             self.pressed.add(name)
 
@@ -142,6 +166,14 @@ class PosePlanner:
         self.linear_speed = float(linear_speed_m_s)
         self.angular_speed = float(angular_speed_rad_s)
         self.max_delta = [*map(float, max_delta_xyz_m), *map(float, max_delta_rxz_rad)]
+        self.delta = [0.0] * 5
+
+    def recenter(self) -> None:
+        """Drop the accumulated offset so the next command starts from zero.
+
+        Must pair with a recenter message to the driver: clearing only this side
+        would make the client disagree with the driver about the origin.
+        """
         self.delta = [0.0] * 5
 
     def update(self, keys: set[str], dt_s: float) -> list[float]:
@@ -354,6 +386,8 @@ def main() -> None:
     )
     kbd = KeyboardDevice()
     sequence = 0
+    recenter_count = 0
+    straighten_count = 0
     current = zero_action()
     log_path = args.log_csv or f"teleop_{time.strftime('%Y%m%d_%H%M%S')}.csv"
     fields = ["time", "keys", *[f"target_{a}" for a in ("x","y","z","rx","ry","rz")],
@@ -366,6 +400,8 @@ def main() -> None:
     print("Keyboard XYZ+RX/RZ teleop started (world frame: +X right, +Y insertion, +Z up).")
     print("A/D: X-,X+ | Q/E: Y+,Y- | W/S: Z+,Z-")
     print("U/J: RX+,RX- | I/K: RZ+,RZ- | world Ry: disabled | Esc/Ctrl+C: return to startup position")
+    print("R: recenter (clear accumulated offsets, current pose becomes the origin; no motion)")
+    print("H: straighten (unbend both segments, insertion depth held; this DOES move the robot)")
     print(
         f"Limits: xyz=[{args.max_delta_x_mm:g}, {args.max_delta_y_mm:g}, "
         f"{args.max_delta_z_mm:g}] mm, "
@@ -378,6 +414,26 @@ def main() -> None:
         while not kbd.stop_requested and (
             mujoco_mirror is None or mujoco_mirror.is_running()
         ):
+            if kbd.take_straighten_request():
+                # The driver owns the PMAC connection, so it runs the ramp; the
+                # planner offset is dropped here to match the straight pose the
+                # driver recenters on when the ramp finishes.
+                command_socket.send_json(build_straighten_message(sequence))
+                sequence += 1
+                planner.recenter()
+                straighten_count += 1
+                print(f"STRAIGHTEN #{straighten_count} sent | driver unbends both "
+                      f"segments, insertion depth held. Watch the driver log.")
+            if kbd.take_recenter_request():
+                # Reset both sides in the same cycle: the driver drops its
+                # accumulated offset and re-anchors, and the planner drops the
+                # matching offset here. No motor motion is commanded.
+                command_socket.send_json(build_recenter_message(sequence))
+                sequence += 1
+                planner.recenter()
+                recenter_count += 1
+                print(f"RECENTER #{recenter_count} sent | offsets cleared, "
+                      f"current pose is the new origin.")
             delta = planner.update(kbd.pressed, interval)
             current = action_from_delta(delta)
             send_action(command_socket, sequence, current)

@@ -13,7 +13,7 @@ from continuum_sdk.control.interface_contract import (
 
 
 PROTOCOL_VERSION = 1
-ControlMessageKind = Literal["command", "hold"]
+ControlMessageKind = Literal["command", "hold", "recenter", "straighten"]
 
 
 def _message_header(kind: str, sequence: int) -> dict[str, int | str]:
@@ -35,6 +35,27 @@ def build_hold_message(sequence: int) -> dict[str, Any]:
     return _message_header("hold", sequence)
 
 
+def build_recenter_message(sequence: int) -> dict[str, Any]:
+    """Clear accumulated command state and re-anchor at the current pose.
+
+    Carries no action: the motors are not asked to move. The driver drops the
+    operator's accumulated WORLD offset and treats wherever the robot already
+    is as the new origin for relative commands.
+    """
+    return _message_header("recenter", sequence)
+
+
+def build_straighten_message(sequence: int) -> dict[str, Any]:
+    """Ask the driver to unbend both segments, holding insertion depth.
+
+    Unlike recenter this does command motion, but only on the four rotary axes:
+    insertion d is held exactly so the tube never advances or retracts. The
+    driver owns the PMAC connection, so the reset has to run there rather than
+    in a separate jog process.
+    """
+    return _message_header("straighten", sequence)
+
+
 def parse_control_message(message: Mapping[str, Any]) -> tuple[ControlMessageKind, TipPoseCommand | None]:
     if not isinstance(message, Mapping):
         raise ValueError("Control message must be a mapping.")
@@ -45,6 +66,10 @@ def parse_control_message(message: Mapping[str, Any]) -> tuple[ControlMessageKin
     kind = message.get("kind")
     if kind == "hold":
         return "hold", None
+    if kind == "recenter":
+        return "recenter", None
+    if kind == "straighten":
+        return "straighten", None
     if kind != "command":
         raise ValueError(f"Unsupported control message kind: {kind!r}")
 

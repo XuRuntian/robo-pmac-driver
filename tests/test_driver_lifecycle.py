@@ -109,6 +109,7 @@ def test_return_ramp_rejects_excessive_axis5_step_before_motion():
 
 def test_reference_rejection_during_startup_closes_robot(monkeypatch):
     args = SimpleNamespace(
+        visual_state_port=0, live_debug=False, latency_csv=None,
         watchdog_timeout=.2, feedback_hz=10, return_duration=8, return_check_tolerance_pulses=0,
         shape_debug_hz=0, motor_debug_hz=0, motor_debug_min_tip_mm=.5,
         motor_debug_min_rotation_rad=.01, motor_debug_change_pulses=1000,
@@ -175,8 +176,13 @@ def test_dry_run_holds_motor_targets_and_exits_on_sigterm(explicit_hold):
         assert all(values == held[0] for values in held)
         proc.send_signal(signal.SIGTERM)
         out, err = proc.communicate(timeout=5)
-        assert proc.returncode == 0, (out, err)
-        assert 'server stopped' in out
+        if sys.platform == 'win32':
+            # Popen.send_signal(SIGTERM) uses TerminateProcess on Windows;
+            # it cannot exercise Python's graceful signal handler.
+            assert proc.returncode == 1 and not err, (out, err)
+        else:
+            assert proc.returncode == 0, (out, err)
+            assert 'server stopped' in out
     finally:
         if proc.poll() is None:
             proc.kill()

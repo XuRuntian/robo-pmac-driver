@@ -5,6 +5,7 @@ driver process owns the mailboxes; its feedback and motion calls share a lock.
 """
 
 from dataclasses import dataclass
+from contextlib import contextmanager
 import time
 
 
@@ -27,6 +28,20 @@ class DriverStatus:
     ready: int
 
 
+@dataclass
+class TransactionTiming:
+    total_ms: float = 0.0
+    read_ms: float = 0.0
+    write_ms: float = 0.0
+    sleep_ms: float = 0.0
+    sleep_requested_ms: float = 0.0
+    reads: int = 0
+    writes: int = 0
+    polls: int = 0
+    sleeps: int = 0
+    success: bool = False
+
+
 class PMACProtocol:
     def __init__(self, modbus, timeout_s: float = 0.2, poll_interval_s: float = 0.001):
         if timeout_s <= 0 or poll_interval_s <= 0:
@@ -34,13 +49,51 @@ class PMACProtocol:
         self.modbus = modbus
         self.timeout_s = timeout_s
         self.poll_interval_s = poll_interval_s
+        self.sleep_fn = None  # None preserves the default time.sleep path.
+        self.last_pvt_status: DriverStatus | None = None
+        self.trace_enabled = False
+        self.last_submit_timing: TransactionTiming | None = None
+        self.last_snapshot_timing: TransactionTiming | None = None
+        self._active_timing: TransactionTiming | None = None
+
+    @contextmanager
+    def _measure_transaction(self, kind):
+        # Enter only while the mailbox transaction lock is held. No extra I/O.
+        setattr(self, f"last_{kind}_timing", None)
+        if not self.trace_enabled:
+            yield
+            return
+        timing = TransactionTiming()
+        self._active_timing = timing
+        start = time.perf_counter()
+        try:
+            yield
+            timing.success = True
+        finally:
+            timing.total_ms = (time.perf_counter() - start) * 1000
+            setattr(self, f"last_{kind}_timing", timing)
+            self._active_timing = None
+
+    def _io(self, operation, address, payload):
+        method = self.modbus.read_int32_array if operation == "read" else self.modbus.write_int32_array
+        kwargs = {"address": address, "count" if operation == "read" else "values": payload}
+        timing = self._active_timing
+        if timing is None:
+            return method(**kwargs)
+        start = time.perf_counter()
+        try:
+            return method(**kwargs)
+        finally:
+            setattr(timing, operation + "s", getattr(timing, operation + "s") + 1)
+            setattr(timing, operation + "_ms", getattr(timing, operation + "_ms") +
+                    (time.perf_counter() - start) * 1000)
 
     def write(self, address: int, values: list[int]) -> None:
-        if not self.modbus.write_int32_array(address=address, values=values):
+        if not self._io("write", address, values):
             raise ConnectionError(f"Modbus write rejected at address {address}")
 
     def status(self) -> DriverStatus:
-        status = DriverStatus(*self.modbus.read_int32_array(PVT_REQUEST, 8))
+        status = DriverStatus(*self._io("read", PVT_REQUEST, 8))
         if status.version != PROTOCOL_VERSION:
             raise RuntimeError(
                 f"PMAC protocol {status.version} is incompatible; "
@@ -51,12 +104,24 @@ class PMACProtocol:
     def wait(self, predicate, description: str, timeout_s: float | None = None):
         deadline = time.monotonic() + (self.timeout_s if timeout_s is None else timeout_s)
         while True:
+            timing = self._active_timing
+            if timing is not None:
+                timing.polls += 1
             result = predicate()
             if result:
                 return result
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"Timed out waiting for {description}")
-            time.sleep(self.poll_interval_s)
+            if timing is None:
+                (self.sleep_fn or time.sleep)(self.poll_interval_s)
+            else:
+                start = time.perf_counter()
+                try:
+                    (self.sleep_fn or time.sleep)(self.poll_interval_s)
+                finally:
+                    timing.sleeps += 1
+                    timing.sleep_requested_ms += self.poll_interval_s * 1000
+                    timing.sleep_ms += (time.perf_counter() - start) * 1000
 
     @staticmethod
     def next_token(acknowledged: int) -> int:
@@ -65,7 +130,7 @@ class PMACProtocol:
 
     def snapshot(self) -> tuple[list[int], tuple[int, ...]]:
         """Request fresh positions and homing status, frozen until next request."""
-        with self.modbus.transaction_lock:
+        with self.modbus.transaction_lock, self._measure_transaction("snapshot"):
             status = self.status()
             if status.feedback_pending:
                 self.wait(lambda: not self.status().feedback_pending, "previous feedback snapshot")
@@ -78,8 +143,8 @@ class PMACProtocol:
                 return not status.feedback_pending and status.feedback_accepted == token
 
             self.wait(ready, "fresh PMAC feedback snapshot")
-            positions = self.modbus.read_int32_array(10, 5)
-            homing = tuple(self.modbus.read_int32_array(HOMING_STATUS, 5))
+            positions = self._io("read", 10, 5)
+            homing = tuple(self._io("read", HOMING_STATUS, 5))
             return positions, homing
 
     def require_stream_ready(self) -> DriverStatus:
@@ -91,7 +156,8 @@ class PMACProtocol:
         return status
 
     def submit_pvt(self, positions: list[int], velocities: list[int], duration: int) -> None:
-        with self.modbus.transaction_lock:
+        self.last_pvt_status = None
+        with self.modbus.transaction_lock, self._measure_transaction("submit"):
             self.wait(lambda: not self.require_stream_ready().pending, "previous PVT submission")
             status = self.require_stream_ready()
             token = self.next_token(status.accepted)
@@ -106,7 +172,7 @@ class PMACProtocol:
                     return False
                 if status.accepted != token:
                     raise RuntimeError("PMAC cleared the PVT request without accepting this frame.")
-                return True
+                return status
 
             # An ambiguous timeout is never retried: execution may have begun.
-            self.wait(accepted, "PVT acceptance acknowledgement")
+            self.last_pvt_status = self.wait(accepted, "PVT acceptance acknowledgement")

@@ -4,7 +4,10 @@ import argparse
 from contextlib import ExitStack
 from dataclasses import replace
 import csv
+import json
+import math
 import signal
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -13,10 +16,16 @@ import numpy as np
 import zmq
 
 from continuum_sdk.control.axis_mapper import ContinuumAxisMapper
+from continuum_sdk.control.rotary_target_guard import RotaryTargetGuard, RotaryTargetJump
+from continuum_sdk.control.live_diagnostic import LiveDiagnostic, diagnostic_lines
+from continuum_sdk.control.visual_state import visual_snapshot
 from continuum_sdk.control.cartesian_frame import apply_axis_transform
 from continuum_sdk.control.pvt_mapper import ContinuumPVTMapper
 from continuum_sdk.control.tip_command_filter import TipCommandFilter
+from continuum_sdk.control.stop_priority_filter import StopPriorityCommandFilter
+from continuum_sdk.control.straighten_ramp import StraightenRamp
 from continuum_sdk.control.ik_limit_monitor import IKLimitMonitor
+from continuum_sdk.control.insertion_profile import InsertionProfile
 from continuum_sdk.core.config_loader import load_continuum_config
 from continuum_sdk.core.factory import build_continuum_ik, build_tendon_mapper
 from continuum_sdk.core.interface_config import load_robot_interface_config
@@ -28,6 +37,8 @@ from continuum_sdk.transport.zmq_protocol import (
 )
 from pmac_sdk.controller.robot_api import PMACRobotController
 from pmac_sdk.core.config_model import PMACConfig
+from pmac_sdk.controller.protocol import TransactionTiming
+from pmac_sdk.core.waiting import WindowsHighResolutionWait
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,11 +46,23 @@ def parse_args() -> argparse.Namespace:
         description="Run the fixed-rate PMAC continuum driver and expose a ZMQ control boundary."
     )
     parser.add_argument("--config", default="config/continuum.yaml")
+    parser.add_argument("--live-debug", action="store_true", help="Refresh a fixed four-line IK/axis diagnostic at 4 Hz; interactive terminal only.")
+    parser.add_argument("--latency-csv", help="Optional per-cycle latency trace; exclusive-create, no extra PMAC reads.")
+    parser.add_argument("--wait-mode", choices=("system", "windows-highres"), default="system",
+                        help="Wait backend for protocol polling and main loop; default keeps existing behavior.")
     parser.add_argument("--interface-config", default="config/robot_interface.yaml")
+    parser.add_argument("--reset-keys", action=argparse.BooleanOptionalAction, default=True,
+                        help="Listen for reset keys in this terminal; stop teleoperation first.")
+    parser.add_argument("--straighten-key", default="h",
+                        help="Key that unbends both segments while holding insertion depth.")
+    parser.add_argument("--recenter-key", default="r",
+                        help="Key that clears accumulated command offsets without moving.")
     parser.add_argument("--pmac-ip", default="192.168.0.200")
     parser.add_argument("--bind-host", default="127.0.0.1")
     parser.add_argument("--command-port", type=int, default=5555)
     parser.add_argument("--state-port", type=int, default=5556)
+    parser.add_argument("--visual-state-port", type=int, default=0,
+                        help="Optional read-only PUB endpoint for viewers, e.g. 5557; 0 disables.")
     parser.add_argument(
         "--watchdog-timeout",
         type=float,
@@ -132,13 +155,39 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# One-shot control requests must survive conflation. Streamed pose commands are
+# superseded by the next one, but dropping a reset press loses the operator's
+# only way to ask for it, so those are queued instead of overwritten.
+_ONE_SHOT_KINDS = ("hold", "recenter", "straighten")
+
+
 def _latest_message(socket: zmq.Socket) -> dict[str, Any] | None:
-    latest = None
+    """Receive one pending message, or None when the socket is empty."""
+    try:
+        return socket.recv_json(flags=zmq.NOBLOCK)
+    except zmq.Again:
+        return None
+
+
+def _drain_messages(socket: zmq.Socket) -> list[dict[str, Any]]:
+    """Latest streamed command, preceded by every one-shot request received.
+
+    Returns them in arrival order so a reset pressed after a pose command is
+    still applied after it.
+    """
+    messages: list[dict[str, Any]] = []
     while True:
-        try:
-            latest = socket.recv_json(flags=zmq.NOBLOCK)
-        except zmq.Again:
-            return latest
+        message = _latest_message(socket)
+        if message is None:
+            # Nothing further is pending this cycle.
+            break
+        if isinstance(message, dict) and message.get("kind") in _ONE_SHOT_KINDS:
+            messages.append(message)
+        else:
+            # Keep only the newest streamed command, preserving its position.
+            messages = [m for m in messages
+                        if m.get("kind") in _ONE_SHOT_KINDS] + [message]
+    return messages
 
 
 def _state_from_feedback(
@@ -236,6 +285,119 @@ def _return_to_reference_pvt(
             time.sleep(remaining)
         else:
             tail_next_call = time.perf_counter()
+
+
+class ResetKeyListener:
+    """Watch for reset keys in the driver's own terminal.
+
+    The driver owns the PMAC connection, so a reset typed here needs no
+    teleoperation client and no second process touching the hardware. Keys are
+    recorded as a pending request and consumed by the control loop, because
+    pynput delivers callbacks on its own thread.
+    """
+
+    def __init__(self, straighten_key: str, recenter_key: str):
+        self.straighten_key = straighten_key.lower()
+        self.recenter_key = recenter_key.lower()
+        self.pending: str | None = None
+        self._listener = None
+
+    def start(self) -> str:
+        try:
+            from pynput import keyboard
+        except ImportError:
+            return ("Reset keys unavailable: pynput is not installed. "
+                    "Resets can still be sent over ZMQ.")
+
+        def on_press(key: Any) -> None:
+            try:
+                name = key.char.lower() if key.char else None
+            except AttributeError:
+                return
+            if name == self.straighten_key:
+                self.pending = "straighten"
+            elif name == self.recenter_key:
+                self.pending = "recenter"
+
+        self._listener = keyboard.Listener(on_press=on_press)
+        self._listener.start()
+        return (f"Reset keys active in this terminal: '{self.straighten_key}' "
+                f"straighten (unbends both segments, insertion held), "
+                f"'{self.recenter_key}' recenter (clears offsets, no motion).")
+
+    def take(self) -> str | None:
+        pending, self.pending = self.pending, None
+        return pending
+
+    def stop(self) -> None:
+        if self._listener is not None:
+            self._listener.stop()
+            self._listener = None
+
+
+def _within_reset_gate(
+    action: dict[str, float] | None,
+    gate: dict[str, float],
+    command_cfg: Any,
+) -> bool:
+    """True while the operator's input still matches its pre-reset value.
+
+    A reset throws away the accumulated offset. If the operator has not moved,
+    the same absolute offset keeps arriving, and applying it would snap the tip
+    back to exactly the pose the reset just left. Reuses the configured input
+    motion thresholds so the gate releases as soon as real motion appears.
+    """
+    if action is None:
+        return False
+    for axis in ("x", "y", "z"):
+        key = f"tip_delta_{axis}"
+        if abs(action[key] - gate[key]) > command_cfg.input_translation_epsilon_m:
+            return False
+    for axis in ("rx", "ry", "rz"):
+        key = f"tip_delta_{axis}"
+        if abs(action[key] - gate[key]) > command_cfg.input_rotation_epsilon_rad:
+            return False
+    return True
+
+
+def _reject_straighten_plan(
+    ramp: Any,
+    tendon_mapper: Any,
+    axis_mapper: ContinuumAxisMapper,
+    base_pulses: list[int],
+    previous_pulses: list[int],
+    previous_velocities: list[float],
+    rotary_guard: RotaryTargetGuard,
+    update_interval: float,
+) -> str | None:
+    """Return a reason string if the reset plan would trip the rotary guard.
+
+    The reset must not be the thing that ends a session, so the whole plan is
+    checked before the first segment is submitted. Pure computation.
+    """
+    previous = list(previous_pulses)
+    previous_velocity = list(previous_velocities)
+    previous_logical = axis_mapper.pulses_to_logical(base_pulses, previous)
+    for joint in ramp.plan():
+        logical = tendon_mapper.to_axis_targets(joint)
+        candidate = axis_mapper.logical_to_pulses(
+            base_pulses=base_pulses, logical_targets=logical,
+        )
+        velocity = axis_mapper.logical_velocity_to_pulses_per_ms(
+            axis_mapper.diff_velocity(
+                prev_targets=previous_logical, next_targets=logical, dt_s=update_interval,
+            )
+        )
+        try:
+            rotary_guard.check(previous, candidate, previous_velocity, velocity,
+                               update_interval)
+        except RotaryTargetJump as exc:
+            evidence = exc.evidence
+            return (f"physical axis {evidence['physical_axis']} would peak at "
+                    f"{evidence['peak_rad_s']:.3f} rad/s, above the "
+                    f"{evidence['threshold_rad_s']:.3f} rad/s stop threshold.")
+        previous, previous_velocity, previous_logical = candidate, velocity, logical
+    return None
 
 
 def _shape_from_logical_axes(tendon_mapper: Any, logical_axes: list[float]) -> dict[str, float]:
@@ -447,6 +609,11 @@ def _request_shutdown(signum, frame):
 
 def main() -> None:
     args = parse_args()
+    if args.visual_state_port and (not 1 <= args.visual_state_port <= 65535 or
+                                  args.visual_state_port in (args.command_port, args.state_port)):
+        raise ValueError("Visual state port must be distinct from command/state ports and in 1..65535.")
+    if args.live_debug and (args.shape_debug_hz > 0 or args.motor_debug_hz > 0):
+        raise ValueError("Use --live-debug without --shape-debug-hz or --motor-debug-hz to keep the display fixed.")
     if args.watchdog_timeout <= 0.0:
         raise ValueError("--watchdog-timeout must be positive.")
     if args.feedback_hz <= 0.0:
@@ -480,6 +647,24 @@ def main() -> None:
     pmac_cfg = PMACConfig(ip=args.pmac_ip)
     update_hz = interface_cfg.control_hz
     update_interval = 1.0 / update_hz
+    # Validate explicit actuator policy before opening the hardware connection.
+    max_linear_step_pulses = interface_cfg.insertion_step_limit(
+        pmac_cfg.pulses_per_meter, update_interval,
+    )
+    use_insertion_profile = interface_cfg.insertion_max_accel_m_s2 is not None
+    if use_insertion_profile and interface_cfg.insertion_max_speed_m_s is None:
+        raise ValueError("Set execution.insertion_max_speed_m_s before enabling the insertion profile.")
+    if use_insertion_profile and interface_cfg.insertion_error_stop_m is None:
+        raise ValueError("Set execution.insertion_error_stop_m before running the driver.")
+    if use_insertion_profile and args.return_to_reference_on_start:
+        raise ValueError("Startup return has not been validated with the insertion profile; "
+                         "use capture_current without --return-to-reference-on-start.")
+    # Validate quantization margins before opening a hardware connection.
+    if use_insertion_profile:
+        InsertionProfile(0, update_interval,
+                         interface_cfg.insertion_max_speed_m_s * pmac_cfg.pulses_per_meter,
+                         interface_cfg.insertion_max_accel_m_s2 * pmac_cfg.pulses_per_meter,
+                         max_linear_step_pulses)
     feedback_interval = 1.0 / args.feedback_hz
 
     ik = build_continuum_ik(continuum_cfg)
@@ -495,12 +680,63 @@ def main() -> None:
         axis_signs=pmac_cfg.axis_signs,
     )
 
+    rotary_guard = RotaryTargetGuard(axis_mapper, interface_cfg.rotary_target_stop_rad_s)
+    if args.return_to_reference_on_start:
+        raise ValueError("Startup return is outside the guarded teleoperation path; use capture_current.")
+    print(f"Rotary software stop threshold: {rotary_guard.threshold:g} rad/s (not a motor rating)")
+    stop_evidence = {}
+    def save_stop_evidence():
+        if not stop_evidence:
+            return
+        directory = Path(args.latency_csv).parent if args.latency_csv else Path('outputs')
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            path = directory / f"rotary_stop_{time.time_ns()}.json"
+            path.write_text(json.dumps(stop_evidence, indent=2, ensure_ascii=True), encoding='utf-8')
+            print(f"Rejected target evidence: {path}", flush=True)
+        except OSError as exc:
+            # A logging failure must not hide the original stop/cleanup failure.
+            print(f"Could not save rejected target evidence: {exc}", file=sys.stderr, flush=True)
+
     with ExitStack() as cleanup:
+        # Registered first: persist evidence AFTER controller cleanup/stop.
+        cleanup.callback(save_stop_evidence)
+        wait_mode = getattr(args, "wait_mode", "system")
+        cycle_sleep = time.sleep
+        if wait_mode == "windows-highres":
+            wait_backend = WindowsHighResolutionWait()
+            cleanup.callback(wait_backend.close)
+            cycle_sleep = wait_backend.sleep
+        print(f"Wait mode: {wait_mode}")
+        latency_file = None
+        latency_writer = None
+        if getattr(args, "latency_csv", None):
+            latency_path = Path(args.latency_csv)
+            latency_path.parent.mkdir(parents=True, exist_ok=True)
+            latency_file = latency_path.open("x", newline="", encoding="utf-8")
+            # Register before the controller so abort/close precedes final log flushing.
+            cleanup.callback(latency_file.close)
+            latency_file.write("# " + json.dumps({
+                "latency_schema": 2,
+                "wait_mode": wait_mode,
+                "python_version": sys.version,
+                "protocol_poll_interval_s": pmac_cfg.poll_interval_s,
+                "execute": args.execute, "control_hz": update_hz,
+                "feedback_hz": args.feedback_hz,
+                "interface_yaml": Path(args.interface_config).read_text(encoding="utf-8"),
+                "continuum_yaml": Path(args.config).read_text(encoding="utf-8"),
+                "axis_order": pmac_cfg.axis_order, "axis_signs": pmac_cfg.axis_signs,
+                "note": "Host monotonic times; feedback request interval bounds acquisition; queued is software queue only.",
+            }, ensure_ascii=True) + "\n")
         old_sigterm = signal.signal(signal.SIGTERM, _request_shutdown)
         cleanup.callback(signal.signal, signal.SIGTERM, old_sigterm)
         robot = PMACRobotController(pmac_cfg) if args.execute else None
         if robot is not None:
             cleanup.callback(robot.close)
+            if wait_mode == "windows-highres":
+                robot.protocol.sleep_fn = cycle_sleep
+            if latency_file is not None:
+                robot.protocol.trace_enabled = True
         if robot is not None:
             robot.safe_boot_and_home()
             current_pulses = robot.base_positions.copy()
@@ -553,7 +789,8 @@ def main() -> None:
             update_interval_s=update_interval,
             max_inner_steps=continuum_cfg.ik.max_inner_steps,
         )
-        command_filter = TipCommandFilter(interface_cfg.command, update_interval)
+        filter_type = StopPriorityCommandFilter if interface_cfg.command.stop_priority else TipCommandFilter
+        command_filter = filter_type(interface_cfg.command, update_interval)
         # Seed from the actual encoder pose before forming relative WORLD goals.
         pvt_mapper.commit_pulses(current_pulses)
         center_p, center_r = ik.fk_tip()
@@ -562,18 +799,33 @@ def main() -> None:
               f"current={current_pulses[linear_physical_idx]} pulses")
         ik_limit_monitor = IKLimitMonitor()
         linear_physical_idx = axis_mapper.axis_order[4]
-        max_linear_step_pulses = (
-            abs(pmac_cfg.pulses_per_meter * interface_cfg.command.max_speed_m_s[2] * update_interval)
-        )
         if robot is not None:
-            max_linear_step_pulses = min(max_linear_step_pulses, robot.pvt_axis5_max_step)
+            if use_insertion_profile and robot.pvt_axis5_max_step != math.ceil(max_linear_step_pulses):
+                raise ValueError("PMAC Axis5_MaxStep must match the configured insertion budget "
+                                 f"({math.ceil(max_linear_step_pulses)} counts). "
+                                 "Update and verify the paired PMAC parameters before teleoperation.")
+            max_linear_step_pulses = interface_cfg.insertion_step_limit(
+                pmac_cfg.pulses_per_meter, update_interval, robot.pvt_axis5_max_step,
+            )
+        print(f"Insertion step budget: {max_linear_step_pulses:.3f} counts/segment "
+              f"({max_linear_step_pulses / pmac_cfg.pulses_per_meter / update_interval * 1000:.3f} mm/s); "
+              "independent of WORLD Z. Insertion profile only; not coordinated limiting.")
+        insertion_profile = InsertionProfile(
+            current_pulses[linear_physical_idx], update_interval,
+            interface_cfg.insertion_max_speed_m_s * pmac_cfg.pulses_per_meter,
+            interface_cfg.insertion_max_accel_m_s2 * pmac_cfg.pulses_per_meter,
+            max_linear_step_pulses,
+        ) if use_insertion_profile else None
 
         context = zmq.Context()
         cleanup.callback(context.term)
         command_socket = context.socket(zmq.PULL)
         cleanup.callback(command_socket.close)
-        command_socket.setsockopt(zmq.CONFLATE, 1)
-        command_socket.setsockopt(zmq.RCVHWM, 1)
+        # No CONFLATE here: it discards all but the newest message inside the
+        # socket, which silently drops one-shot resets sent while pose commands
+        # are streaming. _drain_messages does the conflation instead, keeping the
+        # newest pose command but every one-shot request.
+        command_socket.setsockopt(zmq.RCVHWM, 8)
         command_socket.setsockopt(zmq.LINGER, 0)
         command_socket.bind(f"tcp://{args.bind_host}:{args.command_port}")
 
@@ -583,15 +835,46 @@ def main() -> None:
         state_socket.setsockopt(zmq.SNDHWM, 1)
         state_socket.setsockopt(zmq.LINGER, 0)
         state_socket.bind(f"tcp://{args.bind_host}:{args.state_port}")
+        visual_socket = None
+        if args.visual_state_port:
+            visual_socket = context.socket(zmq.PUB)
+            cleanup.callback(visual_socket.close)
+            visual_socket.setsockopt(zmq.LINGER, 0)
+            visual_socket.setsockopt(zmq.SNDHWM, 1)
+            visual_socket.bind(f"tcp://{args.bind_host}:{args.visual_state_port}")
+        last_visual_feedback = time.perf_counter()
 
         last_command_time: float | None = None
         watchdog_holding = True
         rejected_commands = 0
+        recenter_count = 0
+        straighten_count = 0
+        straighten_ramp = None
+        straighten_previous_logical = None
+        last_operator_action = None
+        reset_gate_action = None
         last_command_error = ""
         feedback_valid = True
         feedback_pulses = current_pulses.copy()
         last_target_pulses = current_pulses.copy()
+        last_target_velocities = [0.0]*5
+        live_debug = LiveDiagnostic(sys.stdout)
+        next_live_debug = 0.0
+        reset_keys = None
+        if args.reset_keys:
+            reset_keys = ResetKeyListener(args.straighten_key, args.recenter_key)
+            cleanup.callback(reset_keys.stop)
+            print(reset_keys.start())
+            print("Press the straighten key only after teleoperation has stopped: "
+                  "a live client keeps streaming its own pose commands.")
         previous_command = None
+        trace_raw_action = {}
+        trace_previous_start = None
+        trace_feedback_start = None
+        trace_feedback_end = None
+        trace_previous_log_ms = 0.0
+        trace_previous_sleep_requested_ms = 0.0
+        trace_previous_sleep_actual_ms = 0.0
         next_feedback = time.perf_counter()
         next_call = time.perf_counter()
         state_sequence = 0
@@ -637,18 +920,107 @@ def main() -> None:
             start_time = time.perf_counter()
             while True:
                 now = time.perf_counter()
-                message = _latest_message(command_socket)
-                if message is not None:
+                trace_fresh = False
+                trace_submit_start = trace_submit_end = None
+                trace_receive_kind = ""
+                pending_messages = _drain_messages(command_socket)
+                if reset_keys is not None:
+                    pressed = reset_keys.take()
+                    if pressed is not None:
+                        # Handle a local key press exactly like the wire request,
+                        # so there is one implementation of each reset.
+                        pending_messages.append(
+                            {"protocol_version": 1, "kind": pressed,
+                             "sequence": -1, "timestamp_ns": time.time_ns()})
+                for message in pending_messages:
                     try:
                         kind, action = parse_control_message(message)
                         if kind == "hold":
                             command_filter.hold()
                             watchdog_holding = True
+                        elif kind == "straighten":
+                            if straighten_ramp is not None:
+                                print("STRAIGHTEN already in progress; request ignored.",
+                                      flush=True)
+                            elif previous_command is None:
+                                print("STRAIGHTEN needs one completed control cycle "
+                                      "first; request ignored.", flush=True)
+                            else:
+                                candidate = StraightenRamp(
+                                    ik.u, update_interval,
+                                    interface_cfg.straighten_max_theta_rate_rad_s)
+                                if candidate.already_straight:
+                                    print("STRAIGHTEN skipped: both segments are "
+                                          "already straight.", flush=True)
+                                else:
+                                    # Verify the whole plan against the rotary stop
+                                    # threshold before moving, so a reset can never
+                                    # be the thing that ends the session.
+                                    rejected = _reject_straighten_plan(
+                                        candidate, tendon_mapper, axis_mapper,
+                                        base_pulses, last_target_pulses,
+                                        last_target_velocities, rotary_guard,
+                                        update_interval)
+                                    if rejected is not None:
+                                        print(f"STRAIGHTEN rejected before moving: "
+                                              f"{rejected} Lower "
+                                              f"execution.straighten_max_theta_rate_rad_s.",
+                                              flush=True)
+                                    else:
+                                        straighten_ramp = candidate
+                                        straighten_previous_logical = (
+                                            axis_mapper.pulses_to_logical(
+                                                base_pulses, last_target_pulses))
+                                        straighten_count += 1
+                                        command_filter.hold()
+                                        print(f"STRAIGHTEN #{straighten_count} | "
+                                              f"theta_a={math.degrees(ik.u[1]):.1f}deg "
+                                              f"theta_c={math.degrees(ik.u[3]):.1f}deg "
+                                              f"-> 0 over {candidate.duration_s:.2f}s; "
+                                              f"insertion d={ik.u[0]*1000:.2f}mm held.",
+                                              flush=True)
+                        elif kind == "recenter":
+                            # Software-only reset of the teleoperation data: drop the
+                            # accumulated WORLD offset and move the relative-command
+                            # origin to wherever the robot already is. The centre must
+                            # be re-anchored in the same cycle as the filter reset, or
+                            # step() would drive the discarded offset out as motion.
+                            command_filter.recenter()
+                            center_p, center_r = ik.fk_tip()
+                            ik_limit_monitor = IKLimitMonitor()
+                            recenter_count += 1
+                            watchdog_holding = True
+                            reset_gate_action = last_operator_action
+                            print(f"RECENTER #{recenter_count} | command state cleared, "
+                                  f"origin moved to the current pose. No motor motion "
+                                  f"commanded; encoders and base_pulses unchanged.",
+                                  flush=True)
+                        elif reset_gate_action is not None and _within_reset_gate(
+                                action, reset_gate_action, interface_cfg.command):
+                            # A reset discarded the operator's offset, but their
+                            # input has not moved yet, so applying it would drive
+                            # straight back to the pre-reset pose. Ignore it until
+                            # the operator actually moves, then resume from there.
+                            last_command_time = now
+                            trace_receive_kind = kind
+                            continue
                         else:
                             assert action is not None
+                            if reset_gate_action is not None:
+                                reset_gate_action = None
+                                print("Operator input moved; resuming from the "
+                                      "post-reset pose.", flush=True)
+                            previously_limited = command_filter.rotation_command_limited
                             command_filter.set_command(action)
+                            if command_filter.rotation_command_limited and not previously_limited and not args.live_debug:
+                                print("WORLD ROTATION CLAMPED | requested rotation exceeds "
+                                      f"driver range {interface_cfg.command.max_rotation_delta_rad} rad; "
+                                      "this is a command cap, not a motor limit.", flush=True)
+                            trace_raw_action = dict(action)
+                            last_operator_action = dict(action)
                             watchdog_holding = False
                         last_command_time = now
+                        trace_receive_kind = kind
                         last_command_error = ""
                     except (KeyError, TypeError, ValueError) as exc:
                         rejected_commands += 1
@@ -663,7 +1035,10 @@ def main() -> None:
                     command_filter.hold()
                     watchdog_holding = True
 
+                trace_prepare_start = time.perf_counter() if latency_file else 0.0
                 applied_delta = command_filter.step()
+                input_holding = getattr(command_filter, 'input_holding', False)
+                execution_holding = watchdog_holding or input_holding
                 applied_rotation = apply_axis_transform(
                     command_filter.applied_rotation,
                     interface_cfg.frame.rotation_map,
@@ -674,13 +1049,57 @@ def main() -> None:
                     if interface_cfg.command.orientation_enabled
                     else None
                 )
-                if watchdog_holding and previous_command is not None:
+                trace_map_start = time.perf_counter() if latency_file else 0.0
+                diagnostic_previous_u = ik.u.copy() if args.live_debug else None
+                if straighten_ramp is not None:
+                    # Reset in progress: drive joints straight from a closed-form
+                    # ramp, bypassing IK and the operator's command entirely. d and
+                    # both phi are held, so only the four rotary axes move.
+                    straighten_u = straighten_ramp.step()
+                    straighten_logical = tendon_mapper.to_axis_targets(straighten_u)
+                    pvt_command = replace(
+                        previous_command,
+                        target_pulses=axis_mapper.logical_to_pulses(
+                            base_pulses=base_pulses,
+                            logical_targets=straighten_logical,
+                        ),
+                        velocities=axis_mapper.logical_velocity_to_pulses_per_ms(
+                            axis_mapper.diff_velocity(
+                                prev_targets=straighten_previous_logical,
+                                next_targets=straighten_logical,
+                                dt_s=update_interval,
+                            )
+                        ),
+                    )
+                    straighten_previous_logical = straighten_logical
+                    if straighten_ramp.done:
+                        # Re-seed IK and the command origin from the pose actually
+                        # reached, then clear command state so the operator's stale
+                        # offset cannot snap the tip back where it came from.
+                        pvt_mapper.commit_pulses(pvt_command.target_pulses)
+                        command_filter.recenter()
+                        center_p, center_r = ik.fk_tip()
+                        ik_limit_monitor = IKLimitMonitor()
+                        straighten_ramp = None
+                        watchdog_holding = True
+                        # Block the stale offset that is still streaming in, or the
+                        # tip would bend straight back to where the reset started.
+                        reset_gate_action = last_operator_action
+                        print("STRAIGHTEN complete | bend zeroed, insertion held; "
+                              "command state recentered at the straight pose.",
+                              flush=True)
+                elif execution_holding and previous_command is not None:
                     pvt_command = replace(
                         previous_command,
                         target_pulses=list(last_target_pulses),
                         velocities=[0.0] * 5,
                     )
                 else:
+                    feasibility_options = ({
+                        'rotary_guard': rotary_guard,
+                        'previous_pulses': last_target_pulses,
+                        'previous_velocities': last_target_velocities,
+                    } if interface_cfg.rotary_feasible_ik else {})
                     pvt_command = pvt_mapper.build_command(
                         center_p
                         + apply_axis_transform(
@@ -689,16 +1108,20 @@ def main() -> None:
                             interface_cfg.frame.translation_signs,
                         ),
                         z_goal=None if r_goal is None else r_goal[:, 2],
+                        **feasibility_options,
                     )
 
+                trace_map_end = time.perf_counter() if latency_file else 0.0
                 # Inspect the IK solution before PMAC pulse clipping / feedback
                 # warm-start modifies it. These are model joint limits only.
                 ik_limit_message = ik_limit_monitor.update(
-                    None if watchdog_holding else pvt_command.ik_result, now,
+                    None if execution_holding else pvt_command.ik_result, now,
                 )
-                if ik_limit_message is not None:
+                if ik_limit_message is not None and not args.live_debug:
                     print(ik_limit_message, flush=True)
 
+                diagnostic_requested = (axis_mapper.pulses_to_logical(base_pulses, pvt_command.target_pulses)
+                                        if args.live_debug else None)
                 if args.lock_linear_axis:
                     pvt_command.target_pulses[linear_physical_idx] = int(
                         current_pulses[linear_physical_idx]
@@ -709,24 +1132,57 @@ def main() -> None:
                     pvt_command.target_pulses[linear_physical_idx]
                     - last_target_pulses[linear_physical_idx]
                 )
-                linear_delta = float(
-                    np.clip(linear_delta, -max_linear_step_pulses, max_linear_step_pulses)
-                )
-                pvt_command.target_pulses[linear_physical_idx] = int(
-                    round(last_target_pulses[linear_physical_idx] + linear_delta)
-                )
-                pvt_command.velocities[linear_physical_idx] = linear_delta / (
-                    update_interval * 1000.0
-                )
+                requested_linear_delta = linear_delta
+                insertion_segment = None
+                if insertion_profile is not None:
+                    insertion_segment = insertion_profile.step(
+                        pvt_command.target_pulses[linear_physical_idx],
+                        # A straighten reset holds d by construction, so the
+                        # insertion axis must brake rather than chase a target.
+                        holding=(execution_holding or args.lock_linear_axis
+                                 or straighten_ramp is not None),
+                    )
+                    pvt_command.target_pulses[linear_physical_idx] = insertion_segment.position
+                    pvt_command.velocities[linear_physical_idx] = insertion_segment.velocity_counts_ms
+                else:
+                    linear_delta = float(np.clip(linear_delta, -max_linear_step_pulses, max_linear_step_pulses))
+                    pvt_command.target_pulses[linear_physical_idx] = int(round(last_target_pulses[linear_physical_idx] + linear_delta))
+                    pvt_command.velocities[linear_physical_idx] = linear_delta / (update_interval * 1000.0)
+                applied_linear_delta = (pvt_command.target_pulses[linear_physical_idx]
+                                        - last_target_pulses[linear_physical_idx])
+
+                try:
+                    rotary_peaks = rotary_guard.check(
+                        last_target_pulses, pvt_command.target_pulses,
+                        last_target_velocities, pvt_command.velocities, update_interval)
+                except RotaryTargetJump as exc:
+                    stop_evidence.update(exc.evidence)
+                    stop_evidence.update(sequence=state_sequence, execute=args.execute,
+                        ik_converged=bool(pvt_command.ik_result.converged),
+                        ik_u=pvt_command.ik_result.u.tolist(),
+                        applied_command=command_filter.applied_command())
+                    raise
 
                 if robot is not None:
+                    trace_submit_start = time.perf_counter() if latency_file else None
                     robot.move_pvt_stream(
                         target_pulses=pvt_command.target_pulses,
                         velocities=pvt_command.velocities,
                         move_time=update_interval * 1000.0,
                     )
+                    trace_submit_end = time.perf_counter() if latency_file else None
                     if now >= next_feedback:
+                        trace_feedback_start = time.perf_counter() if latency_file else None
                         candidate_feedback = robot.read_positions()
+                        last_visual_feedback = time.perf_counter()
+                        error_counts = getattr(robot, "last_axis5_error_abs_counts", None)
+                        if interface_cfg.insertion_error_stop_m is not None and (
+                                error_counts is None or error_counts < 0 or
+                                error_counts / pmac_cfg.pulses_per_meter >= interface_cfg.insertion_error_stop_m):
+                            raise RuntimeError(f"Insertion following error stop: {error_counts} counts; "
+                                               "abort requested, no automatic return.")
+                        trace_feedback_end = time.perf_counter() if latency_file else None
+                        trace_fresh = True
                         if any(candidate_feedback):
                             feedback_pulses = candidate_feedback
                             feedback_valid = True
@@ -737,7 +1193,10 @@ def main() -> None:
                     feedback_pulses = list(pvt_command.target_pulses)
 
                 pvt_mapper.commit_pulses(pvt_command.target_pulses)
-                commanded_tip, _ = ik.fk_tip()
+                commanded_tip, commanded_rotation = ik.fk_tip()
+                if isinstance(command_filter, StopPriorityCommandFilter) and execution_holding:
+                    command_filter.reanchor_from_tip(commanded_tip, commanded_rotation,
+                                                     center_p, center_r, interface_cfg.frame)
                 previous_command = pvt_command
                 state = _state_from_feedback(axis_mapper, base_pulses, feedback_pulses)
                 ik_error = pvt_command.ik_result.error
@@ -746,11 +1205,17 @@ def main() -> None:
                     "execute": args.execute,
                     "control_hz": update_hz,
                     "watchdog_holding": watchdog_holding,
+                    "input_holding": input_holding,
+                    "execution_holding": execution_holding,
+                    "input_discarded": getattr(command_filter, 'input_discarded', False),
                     "command_age_ms": (
                         None if command_age_s is None else command_age_s * 1000.0
                     ),
                     "feedback_valid": feedback_valid,
                     "linear_axis_locked": args.lock_linear_axis,
+                    "rotation_command_limited": command_filter.rotation_command_limited,
+                    "insertion_profile_remaining_m": None if insertion_segment is None else insertion_segment.remaining_counts / pmac_cfg.pulses_per_meter,
+                    "insertion_velocity_m_s": pvt_command.velocities[linear_physical_idx] * 1000 / pmac_cfg.pulses_per_meter,
                     "feedback_pulses": feedback_pulses,
                     "target_pulses": pvt_command.target_pulses,
                     "ik_error_m": float(np.linalg.norm(ik_error[:3])),
@@ -763,6 +1228,9 @@ def main() -> None:
                         float(np.linalg.norm(ik_error[3:])) if ik_error.size > 3 else 0.0
                     ),
                     "rejected_commands": rejected_commands,
+                    "recenter_count": recenter_count,
+                    "straighten_count": straighten_count,
+                    "straighten_active": straighten_ramp is not None,
                     "last_command_error": last_command_error,
                 }
                 state_message = build_state_message(
@@ -815,6 +1283,7 @@ def main() -> None:
                         applied_action=applied_action,
                         watchdog_holding=watchdog_holding,
                     )
+                    shape_row.update(input_holding=input_holding, execution_holding=execution_holding)
                     if args.shape_debug_hz > 0.0 and now >= next_shape_debug:
                         _print_shape_diagnostic(shape_row)
                         next_shape_debug = now + shape_debug_interval
@@ -825,12 +1294,107 @@ def main() -> None:
                             shape_log_writer.writeheader()
                         shape_log_writer.writerow(shape_row)
 
+                if args.live_debug and now >= next_live_debug:
+                    live_debug.draw(diagnostic_lines(
+                        pvt_command.ik_result, diagnostic_previous_u, diagnostic_requested,
+                        axis_mapper.pulses_to_logical(base_pulses, pvt_command.target_pulses),
+                        np.asarray(axis_mapper.pulses_to_logical(base_pulses, last_target_pulses)),
+                        ik.geometry, holding=execution_holding,
+                        rotation_limited=command_filter.rotation_command_limited,
+                    ))
+                    next_live_debug = now + .25
+                if visual_socket is not None:
+                    visual = visual_snapshot(
+                        state_sequence, [state[f'axis_{i}_pos'] for i in range(1,6)],
+                        axis_mapper.pulses_to_logical(base_pulses, pvt_command.target_pulses),
+                        tendon_mapper.model, execute=args.execute,
+                        feedback_age_s=(time.perf_counter()-last_visual_feedback if robot else 0.),
+                    )
+                    try:
+                        visual_socket.send_json(visual, flags=zmq.NOBLOCK)
+                    except zmq.Again:
+                        pass
                 state_sequence += 1
                 last_target_pulses = list(pvt_command.target_pulses)
+                last_target_velocities = list(pvt_command.velocities)
+                if latency_file is not None:
+                    trace_log_start = time.perf_counter()
+                    cached = getattr(getattr(robot, "protocol", None), "last_pvt_status", None)
+                    def relative(value):
+                        return None if value is None else value - start_time
+                    trace_row = {
+                        "sequence": state_sequence - 1, "t_s": now - start_time,
+                        "execute": args.execute, "received_kind": trace_receive_kind,
+                        "period_ms": None if trace_previous_start is None else (now - trace_previous_start) * 1000,
+                        "work_before_log_ms": (trace_log_start - now) * 1000,
+                        "previous_log_ms": trace_previous_log_ms,
+                        "previous_cycle_sleep_requested_ms": trace_previous_sleep_requested_ms,
+                        "previous_cycle_sleep_actual_ms": trace_previous_sleep_actual_ms,
+                        "prepare_ms": (trace_map_start - trace_prepare_start) * 1000,
+                        "ik_mapping_ms": (trace_map_end - trace_map_start) * 1000,
+                        "submit_start_s": relative(trace_submit_start),
+                        "submit_end_s": relative(trace_submit_end),
+                        "submit_ms": None if trace_submit_start is None else (trace_submit_end - trace_submit_start) * 1000,
+                        "feedback_new": trace_fresh,
+                        "feedback_request_start_s": relative(trace_feedback_start),
+                        "feedback_request_end_s": relative(trace_feedback_end),
+                        "feedback_ms": (trace_feedback_end - trace_feedback_start) * 1000 if trace_fresh else None,
+                        "feedback_age_since_read_ms": None if trace_feedback_end is None else (trace_log_start - trace_feedback_end) * 1000,
+                        "queued_at_ack": None if cached is None else cached.queued,
+                        "insertion_sampled_error_counts": (None if robot is None else getattr(robot, "last_axis5_error_abs_counts", None)),
+                        "insertion_step_limit_counts": max_linear_step_pulses,
+                        "insertion_requested_step_counts": requested_linear_delta,
+                        "insertion_applied_step_counts": applied_linear_delta,
+                        "insertion_step_clipped": abs(requested_linear_delta) > max_linear_step_pulses,
+                        "insertion_profile_limited": requested_linear_delta != applied_linear_delta,
+                        "insertion_remaining_counts": None if insertion_segment is None else insertion_segment.remaining_counts,
+                        "insertion_velocity_counts_ms": pvt_command.velocities[linear_physical_idx],
+                        "insertion_peak_speed_m_s": None if insertion_segment is None else insertion_segment.peak_speed_counts_s / pmac_cfg.pulses_per_meter,
+                        "insertion_peak_accel_m_s2": None if insertion_segment is None else insertion_segment.peak_accel_counts_s2 / pmac_cfg.pulses_per_meter,
+                        "accepted_token": None if cached is None else cached.accepted,
+                        "holding": execution_holding,
+                        "watchdog_holding": watchdog_holding,
+                        "input_holding": input_holding,
+                        "input_discarded": getattr(command_filter, 'input_discarded', False),
+                        "rotation_command_limited": command_filter.rotation_command_limited,
+                        "command_age_ms": status["command_age_ms"],
+                        "rotary_peak_rad_s": max(rotary_peaks),
+                        "rotary_stop_threshold_rad_s": rotary_guard.threshold,
+                        "ik_converged": pvt_command.ik_result.converged,
+                        "ik_feasibility_checks": 0 if execution_holding else pvt_command.feasibility_checks,
+                        "ik_feasibility_rejections": 0 if execution_holding else pvt_command.feasibility_rejections,
+                    }
+                    protocol = getattr(robot, "protocol", None)
+                    for prefix, metric in (
+                        ("pvt", getattr(protocol, "last_submit_timing", None)),
+                        ("snapshot", getattr(protocol, "last_snapshot_timing", None) if trace_fresh else None),
+                    ):
+                        for field in TransactionTiming.__dataclass_fields__:
+                            trace_row[f"{prefix}_{field}"] = None if metric is None else getattr(metric, field)
+                    for key in applied_action:
+                        trace_row["raw_" + key] = trace_raw_action.get(key)
+                        trace_row["applied_" + key] = applied_action[key]
+                    for idx in range(5):
+                        trace_row[f"target_p{idx + 1}"] = pvt_command.target_pulses[idx]
+                        trace_row[f"feedback_p{idx + 1}"] = feedback_pulses[idx] if robot is not None else None
+                    if latency_writer is None:
+                        latency_writer = csv.DictWriter(latency_file, fieldnames=list(trace_row))
+                        latency_writer.writeheader()
+                    latency_writer.writerow(trace_row)
+                    if state_sequence % 50 == 0:
+                        latency_file.flush()
+                    trace_previous_log_ms = (time.perf_counter() - trace_log_start) * 1000
+                    trace_previous_start = now
                 next_call += update_interval
                 sleep_time = next_call - time.perf_counter()
+                if latency_file is not None:
+                    trace_previous_sleep_requested_ms = max(0.0, sleep_time) * 1000
+                    trace_previous_sleep_actual_ms = 0.0
                 if sleep_time > 0.0:
-                    time.sleep(sleep_time)
+                    trace_sleep_start = time.perf_counter() if latency_file else 0.0
+                    cycle_sleep(sleep_time)
+                    if latency_file is not None:
+                        trace_previous_sleep_actual_ms = (time.perf_counter() - trace_sleep_start) * 1000
                 else:
                     next_call = time.perf_counter()
         except KeyboardInterrupt:

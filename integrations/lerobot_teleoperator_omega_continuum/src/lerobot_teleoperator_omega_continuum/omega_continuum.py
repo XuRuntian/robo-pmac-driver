@@ -14,6 +14,7 @@ from lerobot.utils.errors import DeviceNotConnectedError
 from .config_omega_continuum import OmegaContinuumConfig
 from .mapping import ACTION_FIELDS, OmegaContinuumMapper
 from .omega_config import OmegaAxisConfig, load_omega_teleop_config
+from .raw_pose import RawPosePublisher
 
 
 class OmegaContinuum(Teleoperator):
@@ -25,6 +26,7 @@ class OmegaContinuum(Teleoperator):
     def __init__(self, config: OmegaContinuumConfig):
         super().__init__(config)
         self.config = config
+        self._raw_pose_publisher = RawPosePublisher(config.raw_pose_endpoint)
         self._dhd = None
         self._drd = None
         if not config.simulate:
@@ -277,12 +279,12 @@ class OmegaContinuum(Teleoperator):
     def _clip_action(self, action: np.ndarray) -> np.ndarray:
         limits = np.asarray(
             [
-                self.config.max_delta_x,
-                self.config.max_delta_y,
-                self.config.max_delta_z,
-                self.config.max_rotation_x,
-                self.config.max_rotation_y,
-                self.config.max_rotation_z,
+                np.inf if self.config.max_delta_x is None else self.config.max_delta_x,
+                np.inf if self.config.max_delta_y is None else self.config.max_delta_y,
+                np.inf if self.config.max_delta_z is None else self.config.max_delta_z,
+                np.inf if self.config.max_rotation_x is None else self.config.max_rotation_x,
+                np.inf if self.config.max_rotation_y is None else self.config.max_rotation_y,
+                np.inf if self.config.max_rotation_z is None else self.config.max_rotation_z,
             ],
             dtype=float,
         )
@@ -430,7 +432,9 @@ class OmegaContinuum(Teleoperator):
             raise DeviceNotConnectedError(f"{self} is not connected.")
         position, orientation = self._read_pose()
         joints = self._read_joint_angles()
-        if self.config.clutch_enabled and self._is_clutch_pressed():
+        clutch_pressed = self.config.clutch_enabled and self._is_clutch_pressed()
+        self._raw_pose_publisher.publish(position, orientation, clutch_pressed)
+        if clutch_pressed:
             if not self._clutch_active:
                 self._action_anchor = self._last_action.copy()
                 self._clutch_active = True
@@ -453,6 +457,7 @@ class OmegaContinuum(Teleoperator):
         return None
 
     def disconnect(self) -> None:
+        self._raw_pose_publisher.close()
         if not self._is_connected:
             return
         if self.config.simulate:

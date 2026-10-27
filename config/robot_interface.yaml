@@ -24,7 +24,7 @@ frame:
 initial_position:
   # Axis 5 is manually homed before use. Preserve displacement from that zero
   # instead of treating each teleoperation startup as insertion d=0.
-  insertion_zero_pulses: 0
+  insertion_zero_pulses: -7000000
   # capture_current preserves the current behavior: startup feedback becomes
   # the logical actuator zero for this run.
   #
@@ -37,6 +37,15 @@ initial_position:
   require_near_reference: false
   tolerance_pulses: null
 
+execution:
+  # Software anomaly stop, NOT a validated motor speed capability.
+  # Checks rotary PVT cubic peak before submission; trip ends the session.
+  rotary_target_stop_rad_s: 2.5
+  # Logical insertion d speed budget, independent of WORLD X/Y/Z.
+  # Preserve the previous host budget. Actual step = min(host budget, live PLC cap).
+  # 0.01 m/s is NOT a validated mechanical speed rating.
+  insertion_max_speed_m_s: 0.01
+
 command:
   # Tip pose offset from the configured neutral tip pose, robot XYZ.
   max_delta_m: [0.08, 0.05, 0.05]
@@ -48,7 +57,9 @@ command:
   orientation_enabled: true
   # External/world rotations: Rx and Rz are enabled; Ry maps to the
   # continuum tool-axis roll and is disabled.
-  max_rotation_delta_rad: [6.0, 0.0, 6.0]
+  # null removes the Rx/Rz command cap; 0 keeps Ry disabled.
+  # IK geometry and execution limits remain; not every requested pose is reachable.
+  max_rotation_delta_rad: [null, 0.0, null]
   max_angular_speed_rad_s: [0.5, 0.0, 0.5]
 
   deadband_m: 0.0003

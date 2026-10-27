@@ -1,0 +1,717 @@
+# 键盘控制迟滞取证
+
+## 停止优先候选（2026-10-16，离线验证，尚未实机验收）
+
+实测补充：`teleop_stop_priority_20261016_203234.csv` 共 2521 帧、50.40 秒。
+输入在 41.840 秒冻结，约 0.120 秒后进入输入保持；首个持续稳定的旋转编码器反馈在约 0.209 秒后出现
+（0.02° 带宽，新反馈约 118 ms 一次）。该片段第五轴已在零位，未验证运动中的第五轴刹停。
+本轮随后因旋转保护结束，不能称为整体实机验收通过：拒绝序号 2521 的证据在
+`rotary_stop_1792154015491354000.json`，物理轴 4 预测峰值 3.343074 rad/s 超过 2.5 rad/s。
+停止拖尾改善与运动中异常候选是两个独立结论，后者在下一检查点单独修复。
+
+用户已选择：主端超出从端跟随能力时允许缩小实际位移，优先取消停顿后的长时间追赶。
+候选配置为 `config/robot_interface_stop_priority_trial.yaml`；原配置保持原行为。
+这是有意改变主从位置对应关系的遥操作策略，不是提高电机能力或取消保护。
+
+- `stop_priority: true` 选择 `StopPriorityCommandFilter`。线上 `tip_delta` 仍是相对参考的目标偏移；内部对相邻输入取差，不将每个重复报文当作增量。
+- 输入变化叠加到当前有效目标，按现有速度和滤波参数限制待处理量，超出部分不保留为后续追赶债务。XYZ/旋转映射、Ry 禁用、轴序、符号和 IK 保持不变。
+- 每周期判断输入是否有意义地移动：平移阈值 0.05 mm、旋转阈值 0.001 rad，相对最近运动锚点比较，慢速小步可累计越过阈值。阈值是显式候选参数，尚未完成主端噪声标定。
+- 名义 50 Hz 下持续 120 ms 无有意义变化，进入 `input_holding`。该判定按控制周期计数；不是主端物理停止时间测量。
+- 停顿复用原 hold 路径：旋转轴保持已提交终点，端点速度置零；第五轴按原 profile 减速。旋转 PVT 峰值保护继续生效，但旋转加速度未标定，不能据此宣称机械无冲击。
+- 停顿期间使用已提交目标 FK 重新对齐有效末端目标，保留原参考坐标系和配置的映射；不会重设编码器、PLC 零点或电机基准。只追踪 tip-axis，不引入独立 roll。恢复操作从这一有效状态继续，避免重启旧 IK/第五轴追赶。
+- 启动及显式 hold/通信看门狗之后的首个命令仅建立输入参考；再次移动才产生新的目标。自动输入停顿后，运动超过阈值会恢复；这不是故障停止后的自动恢复。保护触发仍结束会话。
+- `holding` CSV 字段表示实际执行保持；新增 `watchdog_holding`、`input_holding` 区分原因，`input_discarded` 标识该周期丢弃输入积压。状态消息另有 `execution_holding`。
+
+离线回放使用日志收到的原始输入、当前 IK、原第五轴 profile 及原旋转保护，逐周期从自身提交状态继续。
+01 的三个固定输入片段中，全部目标位置及端点速度稳定时间分别为 0.960、0.700、0.460 秒；
+原日志在对应的 3.000、2.160、1.120 秒片段结束时第五轴均仍在移动。
+三段输入保持均在约 0.12 秒触发；第一段随后还有约 1.60 mm 的第五轴减速位移。
+01/03 共 7925 帧回放无旋转保护触发，纯算法及诊断耗时 P99 约 4.59/5.92 ms；
+这些数值不包含通信、PMAC 缓冲和机械响应，不是实机停稳时间或 20 ms 整周期保证。
+03 CSV 不含被拒绝的 3522 帧，不能把此回放称为对该帧在新轨迹上的实机验证。
+此模式解决目标积压策略问题，不代表已消除所有 IK 分支跳变。
+
+原始数据及复现脚本：`outputs/stop_latency_audit/replay_stop_priority.py`、`stop_priority_summary.json`、`stop_priority_01.json`、`stop_priority_03.json`。
+现有日志缺少主端停止时间戳，反馈新样本间隔约 0.1 秒；改变轨迹后的实际反馈只能后续实测。
+
+候选仍未启动硬件。只做离线核查时不要添加 `--execute`。未来人工实机验证必须使用新配置，旧启动配置不会自动改变行为。
+
+## 当前收敛结论（2026-10-13，优先于下方历史记录）
+
+### 固定终端诊断
+
+driver 新增 `--live-debug`，交互终端以 4 Hz 原位刷新四行，不与 shape/motor 滚动打印同时开启，不增加控制器请求。非交互输出不发送光标控制字符。near 依据本周期 IK 解（hold 时为上一发送状态）：插入距上下界不超过 1 mm、弯曲 theta 距上界不超过 5°；只是观察阈值，不修改控制限位，也不是实测电机限位。blocked 仅在本周期未收敛且有边界尝试时显示；cmd_cap 表示 driver WORLD 旋转范围截断。原 IK/旋转限幅滚动消息在此模式内整合显示，异常退出仍保留。
+
+IK delta 为本周期 IK 解相对上一已发送目标反解状态的 [d,theta_a,phi_a,theta_c,phi_c] 增量（mm、deg），phi 使用最短角差；REQ/SENT 为经 ContinuumAxisMapper 反解的逻辑 [alpha1..4,d] 请求/实际发送增量（deg、mm），不是编码器实测运动。每次展示一个控制周期快照，不是 0.25 s 累积量，可能漏掉刷新间的瞬时事件；需要逐帧取证仍用 latency CSV。建议终端宽度至少 120 列，过窄时右侧截断以避免折行刷屏。相关显示、driver 假硬件/纯软件路径及 IK 边界监视测试 24 项通过。
+
+### 旋转范围职责收敛（软件变更，未上机）
+
+用户授权将范围管理集中到 driver。Omega 插件 Rx/Rz 上限默认改为 None，mapper 与离合后 action 两处都支持无设备侧截断；Ry 仍默认 0，显式传入旧上限参数仍兼容。两份主用 robot_interface YAML 的 max_rotation_delta_rad 从 [6,0,6] 改为 [0.45,0,0.45]，保留此前 Omega 有效范围，避免迁移职责时突然放开到 6 rad。这也收紧了键盘等其他客户端的 driver 旋转范围。该调整不扩大可用旋转幅度，不承诺消除范围边界处的不敏感；扩大范围应单独调整 driver 配置与验证。
+
+新增状态/CSV 标记 rotation_command_limited，命令开始被截断时打印 WORLD ROTATION CLAMPED，与已有 IK CONSTRAINED 分开。原始 WORLD 输入现在可超过 0.45，applied 仍受 driver 范围/平滑/速度约束。q0、腕关节映射、离合锚点、IK 和 PMAC 不变。37 项所选 Omega/接口/driver 日志纯软件测试通过，涵盖超过 0.45 的腕关节命令穿过插件、离合后 action、driver 集中限幅及 hold 清除标记；未启动硬件。新行为需重启两个进程，启动命令不要再显式传旧 teleop.max_rotation_x/z 覆盖值。
+
+### 第二轮候选 Omega 结果（03）
+
+原始数据快照 `outputs/latency_omega_profile_03_review/capture.csv`，统计 summary.json；边界重放位于 `outputs/omega_boundary_03_review/`。共 2617 帧、52.32 s，其中活动帧 1250。用户反馈旋转“比较敏感”。供点 49.998 Hz，最大周期 21.749 ms；第五轴新鲜采样跟随误差最大 0.026568 mm、P95 0.016988 mm，发送曲线峰值速度 2.73698 mm/s、加速度 4.98569 mm/s²。不同于 02 的动作，不将误差降低归因为新增参数优化。
+
+本轮并非严格纯旋转对照：WORLD X 输入最高 13.36 mm，Y 最低 -4.33 mm；Rx/Rz 原始 WORLD 指令到 ±0.45 rad 的活动帧分别 72/740（名义 1.44/14.80 s）。启动第五轴 d=0，活动帧中 380 帧发送目标仍为 0，不能认为起点留有双向插入余量。
+
+按本轮 applied 指令与记录配置重放，全部目标脉冲精确一致，活动帧收敛标记全部一致；310/1250（24.8%）未收敛帧均有 d.lower 尝试，其中 297 帧对应第五轴目标为 0。IK 解最大位置误差约 2.43688 mm、工具轴方向误差约 0.006294°，均为模型值。支持保留当前电机/执行参数作为本次工作范围的阶段候选，停止继续调增益或加速度；仍保留输入饱和和模型插入下界的限制，不宣称边界内外都已验收。未修改映射、IK、零点或 PMAC 工程。
+
+### 首轮候选 Omega 联动补充（21:22 记录）
+
+后续边界重放：`outputs/omega_boundary_review/replay.py` 以记录中的 applied 指令、配置快照和先前发送位置重建 IK 与候选生成器，不连接硬件。全部 5630 帧目标脉冲误差为 0，活动帧收敛标记全部一致，因此可用于重建本次求解限制尝试。3492 个未收敛帧全部记录 d.lower 尝试，无其他边界尝试；首次发生于 16.060 s，当时发送位置尚未到 d=0、Rz 也未饱和。这说明执行位置是否已到零并不能代替 IK 求解边界判断。
+
+分组：d 非零且 Rz 未饱和时 209/741 帧未收敛；d 非零且 Rz 饱和 208/645；d 为零且 Rz 未饱和 1862/1874；d 为零且 Rz 饱和 1213/1253。重建 IK 解相对滤波目标的最大位置误差约 6.03986 mm、工具轴方向误差仅约 0.02617°。这些不是实际末端测量，不代表下位机硬限位。应区分：Rz 插件 ±0.45 rad 饱和可造成继续转主端却无更多命令；本次 d.lower 限制主要伴随位置目标无法满足，不能由此声称旋转方向求解失败。下一次短测应重新建立主端中位、保持平移不动、小幅分别测 Rx/Rz，避开命令饱和；不放宽 d_min、不重设第五轴零点，不调整已确认映射或电机参数。
+
+`outputs/latency_omega_profile_02_review/capture.csv` 为原 CSV 快照，summary.json 保存统计。共 5630 帧、112.59 s，活动帧 4513，供点约 49.994 Hz，周期 P95 20.387 ms、最大 23.018 ms；新鲜反馈 1009 个，最大采样第五轴跟随误差 0.046877 mm、P95 0.025842 mm。发送曲线峰值速度 3.999955 mm/s、加速度 4.99333 mm/s²，符合候选预算。不能仅凭 CSV 尾部判断进程退出原因；用户未反馈本轮报错。
+
+用户反馈“还行，但是有时旋转轴不敏感，可能接近限位”。活动帧中 Rz 原始 WORLD 命令在 ±0.45 rad 插件上限的帧数为 1898（名义 37.96 s），Rx 为 11 帧；raw 字段已是插件处理后的 WORLD 指令，不是未限幅机械腕角。第五轴目标为 0 的活动帧 3127（名义 62.54 s），其中 3075 帧 IK 未收敛；全部活动帧未收敛 3492/4513（约 77.4%）。记录配置 d_min=0，末尾目标与新鲜反馈第五轴均为 0。这是命令限幅及模型插入边界证据，不是机械零点正确或电机硬限位触发的证明。
+
+执行生成器剩余位置差活动帧 P95 约 3.173 mm、最大 5.954 mm，不是伺服跟随误差。当前表现不能直接归因为电机速度不足，也不能直接把全链路标为验收通过；下一步应按时段区分 Omega 命令饱和、模型边界与执行追赶。保留现有旋转映射/增益与 IK，不自动放宽范围。下位机源码仍为 Axis5_MaxStep=3000，候选运行值 5023 由用户终端设置；应在选定配套运行配置后更新工程声明并由用户部署，不能让 driver 启动时悄悄覆盖保护参数。本轮只读采集与离线分析，未修改下位机源码、未下载或写参数。
+
+用户决定跳过后续较长匀速验证，收敛代码并提交。保留短程正反、hold 和连续换向证据；较长匀速、长期负载与候选轨迹下的 Omega 联动列为未验证，不记作验收通过。
+
+候选配置 `config/robot_interface_axis5_profile_trial.yaml` 更新为控制频率 50 Hz、第五轴速度 0.004 m/s、加速度 0.005 m/s²、主机采样误差停止线 0.00005 m。运行时使用 `--wait-mode windows-highres`，PMAC 预缓冲保留 5 点。该配置仍是显式试用入口，不是默认 baseline；未改 IK、Omega 映射、原 WORLD 滤波或 Motor[5] 的 Jog/伺服参数。
+
+| 参数场景 | Python | PMAC Axis5_MaxStep | PMAC Axis5_MaxVel |
+| --- | --- | --- | --- |
+| 原默认配置 | 原限步路径，insertion_max_speed_m_s=0.01 | 原配套 3000 | 原值 400 counts/ms |
+| 候选 Omega 配置（待联动） | 4 mm/s、5 mm/s²、误差停止 0.05 mm | 5023（driver 必须读回匹配） | 保留 400 counts/ms；生成器自身限制曲线速度 |
+| 已执行单轴试验 | 同候选生成器，工具指定实验档位 | 临时 6500 | 400 counts/ms |
+
+5023=ceil(0.004×62781744×0.02)，是段步长保护，不是加速度参数。实际受限曲线峰值约 251.13 counts/ms；400 是较宽的独立控制器速度保护，不能称为 4 mm/s 的物理限速。不要把临时 6500 搭配原默认配置直接继续运行，原默认程序会读取该预算并改变实际限步。恢复原默认应配套 3000；使用候选需另行设置、核对 5023。上述表格是配套要求，本次没有连接控制器或写入这些值；本地 PMAC 工程定义仍为 3000/400，用户修改的运行值不等于已保存或下载版本。
+
+保留：候选生成器及其量化后曲线验证、driver 可选接入与采样误差停止、只读参数工具、单轴曲线/事件/连续换向工具及测试。6/7.5 档仅作为显式诊断档，不作默认。原始采集和临时重放仍在本地 outputs，不加入提交；本文保留关键结果和限制。主仓库提交不包含下位机工程现有无关 EtherCAT/生成文件改动，也不自动 push。
+
+收敛验证：单轴工具、候选生成器、driver 日志、只读回读、接口配置、PMAC 协议/契约/传输和 driver 生命周期所选纯软件测试 144 passed、2 deselected。排除的是此前已经复现的 Windows SIGTERM 退出码断言（两项参数化用例），不是硬件验收。未运行 tests/test_omega.py 或 tests/test_modbus.py 等硬件入口。
+
+## 加减速度对照试验准备
+
+用户认为加减速度是根因，授权准备验证；目前仍作为待检验假设。为避免缩短行程改变所测位置区间，新增 --accel-mm-s2 1.95/5，两档均固定正向15 mm再返回、请求4 mm/s、步长预算6500。采用余弦速度加减速段加匀速段，保持位置和速度连续、加减速段端点加速度为零；分段20 ms取整后两档实际速度相同。只在显式传入参数时使用，不改变原五次曲线测试或driver默认路径。
+
+|档位|量化插补峰值速度|量化插补峰值加速度|单个加/减速段|单程匀速段|总测试时长|
+|---|---|---|---|---|---|
+|1.95请求|3.99034 mm/s|2.06175 mm/s²|3.24 s|0.52 s|19.00 s|
+|5请求|3.99034 mm/s|5.15421 mm/s²|1.26 s|2.50 s|15.04 s|
+
+两个预览的最大步长均5010 counts，峰值速度250.5205 counts/ms。请求加速度与量化插补实值不同，分析应使用后者。高档限定4 mm/s、15 mm、6500预算，不允许顺带提高速度或使用任意轨迹；高档量化插补加速度硬检查上限6 mm/s²，仅限这个明确试验。采样误差中止线仍0.05 mm，PMAC参数只临时使用既有6500/400预算，不改JogTa/JogSpeed/增益/报警。
+
+49项相关离线测试通过，包括正负行程/轴符号、基准返回、其他四轴保持、同峰值速度、步长/速度/加速度极值以及未验证组合拒绝。仅生成outputs/axis5_accel_preview_low.csv与high.csv，没有执行运动或写实机参数。
+
+用户顺序执行10（--accel-mm-s2 1.95）和11（--accel-mm-s2 5）；其余参数均--distance-mm 15 --peak-mm-s 4 --step-cap-counts 6500 --stop-error-mm 0.05 --confirmed-clearance-mm 15。低档若中止则不继续高档；高档也若中止则保留日志，不提高阈值，不自动返回。两轮结束恢复Axis5_MaxStep=3000并查询。
+
+对照判断：分别分析加速、匀速、减速阶段的采样跟随误差和速度相关性、终点残差、提交周期及缓冲；记录用户实际起停感受。高档更快完成且误差可接受支持提高加减速能力预算，但仍不能独立证明Omega迟滞的唯一根因。改变加速度也会改变jerk和匀速持续时间，本试验不是严格仅改变单一物理量；约10 Hz反馈不能精确测定伺服停止时延。08/09是不同形状的曲线，不能代替新低档对照。
+
+## Omega 参数落地检查：未升级默认运行配置
+
+用户要求修改参数并进入Omega测试后，新增了可显式选择的第五轴执行轨迹候选：config/robot_interface_axis5_profile_trial.yaml。设置速度0.004 m/s、插补峰值加速度0.00195 m/s²及采样误差中止0.00005 m。位置目标/端点速度量化后逐段检查三次PVT插补的速度和加速度极值，并预留量化误差余量。普通hold/watchdog按加速度制动，不再瞬间将第五轴速度归零；异常和Ctrl+C仍按原控制器close/abort清理。只处理逻辑d对应的物理轴，不保证五轴同步或笛卡尔路径保持。
+
+**不能作为默认Omega版本发布。** 使用已验证的历史重放代码，原实现复现2036帧目标脉冲完全一致后，单独替换第五轴执行约束：相对滤波目标的FK位置误差最大值由5.89655增至7.90284 mm，P95由3.62217增至6.68329 mm（活跃帧统计）。其他四轴没有此前协调候选那样的速度突增，但第五轴加速度约束增加追赶。它是离线模型误差，不是实机末端测量。证据保存在outputs/insertion_profile_trial/。
+
+需要修正此前参数推断：约1.95 mm/s²是08/09轨迹的已测峰值，**不是通过加速度扫描测得的硬件上限**。如果把它当运行限值，即使连续理想制动，从4 mm/s停下也需约2.05 s、约4.10 mm；考虑当前量化余量的候选还会更保守。这与用户希望主端停后从端及时停的目标有直接冲突，不能仅凭两次单轴通过就覆盖成正式配置。
+
+因此默认robot_interface.yaml保留原预算及原限幅行为；新增accel/error字段均可选，仅显式选择试验YAML时启用新轨迹。候选必须匹配实机步长ceil(vmax*scale*dt)=5023，拒绝未匹配的3000/6500预算；此检查发生于既有启动流程之后、第一帧提交之前。候选禁止原有未约束的startup return入口。没有修改Omega映射、IK算法或补偿方向。SDK仅缓存原snapshot已返回的跟随误差，不新增硬件请求。
+
+曾在工作区拟改的PMAC兜底值5023/252已经恢复为源码原值3000/400，未下装、未写控制器、未执行硬件运动。当前控制器此前的6500临时值仍需单独核对，源码恢复不等于实机恢复。不要因发现试验YAML就直接运行Omega。
+
+下一步应先验证第五轴在4 mm/s下的更高加减速度/停止表现，再确定兼顾误差和制动距离的运行范围；或由用户明确接受较慢的制动与追赶表现。当前没有已验收的新版PMAC/Omega组合，不能声称已完成正式参数落地。
+
+本轮选定离线回归193 passed、2 deselected；未纳入的两项为既有Windows SIGTERM退出码断言。git diff --check通过。与开始本轮相比，默认接口YAML和PMAC全局阈值文件没有净变更；没有实机下载或参数写入。
+
+## 第五轴下一轮准备（2026-10-13）
+
+### 5 mm/s档准备
+
+第九轮：axis5_response_09.csv（-15 mm再返回）完整954/954帧、172个反馈样本，无中止。峰值目标3.99594 mm/s、量化插补峰值加速度1.95152 mm/s²；最大采样跟随误差0.028129 mm，全样本P95为0.023768 mm，运动阶段P95为0.024147 mm。最终返回本轮起点634591，偏差0 counts，其他四轴目标保持。频率49.99961 Hz，周期P95为20.5475 ms、最大21.2565 ms，prime后ACK队列5–6。08/09分别覆盖起点两侧，均含正负向运动，不能仅凭总误差差异判定方向性原因。
+
+当前可结束单轴速度初筛，将约4 mm/s、约1.95 mm/s²的两条已测平滑轨迹作为后续集成参考，不视为任意同范围轨迹或长期性能验收。尚未覆盖反复循环、突变/立即反向和多轴联动；采样约10 Hz可能漏掉峰值。6500 counts/20 ms的预算不能代表4 mm/s限速，临时预算也不能直接作为最终运行配置。下一阶段应先规划执行层如何产生符合已测能力的连续指令，再验证键盘/Omega，不改既有映射或凭此次实验调整驱动器增益。
+
+16:08北京时间只读after_response09.json显示步长仍6500，未恢复3000；助手未写参数，继续提醒恢复普通driver前恢复并查询。复算摘要outputs/axis5_response09_summary.json。
+
+第八轮完成：axis5_response_08.csv 954/954帧、173个反馈样本，峰值目标3.99594 mm/s，量化插补峰值加速度1.95152 mm/s²，15 mm往返。最大采样跟随误差0.044026 mm，全样本P95为0.036058 mm，运动阶段P95为0.036663 mm；无中止原因，最终编码器相对本轮启动偏差0 counts（返回634591，不是07之前的157467）。提交频率49.99935 Hz，周期P95为20.4789 ms、最大20.8612 ms，prime后ACK队列恒5。反馈最大间隔125.03 ms，不能将本轮未触发阈值当作所有瞬间误差均小于0.05 mm的证明。
+
+08表明4 mm/s的本条平滑轨迹单次完成，而07的5 mm/s轨迹触发主机0.05 mm试验线；两者加速度及起始区间不同，不足以将硬件速度极限精确定位为4–5 mm/s。当前优先重复4 mm/s并检查相反侧轨迹，不把4 mm/s直接设为长期运行上限。15:58北京时间只读after_response08.json显示Axis5_MaxStep仍6500；助手未恢复参数，继续提示用户恢复普通driver前写回并核对3000。复算输出axis5_response08_summary.json，原CSV未修改。
+
+第八轮准备：用户表示基本回到起点，但before_response08.json实际读到Pos=DesPos=ActPos=634591，仍比第七轮启动157467高477124 counts（约7.60 mm）。不静默按已回零处理；新试验始终捕获当前编码器作为基准，不自动回程/设零。步长当前6500。离线15 mm、4 mm/s、6500预算预览通过：峰值3.99594 mm/s、最大步长5017、峰值加速度1.95152 mm/s²，单程7.04 s、总19.08 s。拟记录08；相较07速度和加速度都降低，不作为严格单变量速度实验。发给用户执行时的余量确认值使用本轮必需15 mm，明确应从当前位置核对；助手仅只读和dry-run。
+
+第七轮结果：axis5_response_07.csv 在第192/814帧、去程约3.82 s触发主机following_error_threshold；PLC反馈误差3294 counts，换算0.052467 mm，高于试验线0.05 mm。当帧提交速度约4.9862 mm/s（不是同步电机实测速度），最后提交目标相对启动+7.59973 mm，最后日志反馈+7.00646 mm；差值含缓冲，不能当作伺服误差。触发前约0.56 s内样本误差约0.0404–0.0472 mm，提交周期最大20.8334 ms、去程ACK队列始终5。未完成全往返，不能称5 mm/s档通过，也不能把主机主动中止当作已确认的控制器硬件故障或绝对速度极限。
+
+后续只读after_response07.json显示DesPos=634591、ActPos=634590，启动参考157467，即停后实测相对启动约+7.60 mm，没有返回起点；AmpEna/ClosedLoop仍1。主机触发到清理完成之间仍可能执行已提交轨迹，不能把“请求abort”描述成无延迟瞬停。Axis5_MaxStep仍6500，用户需在结束试验、恢复普通driver前恢复并查询3000。本轮助手没有写控制器参数。下一步建议停止向上加速，保持误差阈值，用较低档（如4 mm/s）收窄当前精度条件下的可用范围；仍需重复性与更高分辨率反馈，不能据单个约10 Hz样本声称找到硬件极限。
+
+用户要求加大档位并索要下一轮命令。工具新增显式6500 counts预算，允许最大15 mm行程、5 mm/s请求；默认3000档与4000档原上限保持。6500档额外检查量化后的三次插补峰值加速度不超过3.1 mm/s²，即使preview也不得绕过。预算仍须与实机回读一致，工具不写控制器参数，采样误差中止线仍0.05 mm。
+
+离线预览：15 mm、5 mm/s，单程5.64 s，总计16.28 s，峰值4.98747 mm/s，最大步长6262，峰值速度313.12196 counts/ms（低于保留的400），峰值加速度2.92266 mm/s²（上轮3.06761）。延长行程是为了控制加速度，不是仅为了让运动更明显。这仍不构成严格恒加速度的单变量试验，也没有恒速平台。
+
+40项相关软件测试通过，包含正负15 mm、正负轴符号、非测试轴保持、返回基准、量化后加速度/速度/步长和越界拒绝。助手仅运行dry-run，文件outputs/axis5_preview_5mms.csv。用户下一次执行前在PMAC终端查询原值并临时设置Axis5_MaxStep=6500，查询确认；停止其他驱动进程，使用已确认50 mm余量。命令：
+
+```bash
+uv run python apps/test_axis5_response.py \
+  --distance-mm 15 --peak-mm-s 5 \
+  --step-cap-counts 6500 --stop-error-mm 0.05 \
+  --confirmed-clearance-mm 50 \
+  --csv outputs/axis5_response_07.csv --execute
+```
+
+不修改Axis5_MaxVel、增益、报警或保存配置。完成或中止且进程退出后，恢复Axis5_MaxStep=3000并查询。若触发中止，保留日志，不为了跑完提高中止线；不自动回程。需分析后再继续提速。
+
+### 第五轮实测结果
+
+第六轮补充：axis5_response_06.csv 为-5 mm去程再返回，564/564帧，103个反馈样本，实际峰值2.98551 mm/s；最大采样跟随误差0.022475 mm，全样本P95为0.020036 mm，运动阶段P95为0.021608 mm，最终相对启动偏差0 counts。未触发中止，其他四轴目标保持。提交频率49.9979 Hz，周期最大20.8352 ms，prime后队列5。hold/settle样本最大终点偏差约0.001609/0.0000159 mm。与05相比本轮采样误差较小，但两轮各自都含正负向运动、覆盖起点两侧不同位置区间，不能简单归因为某一运动方向更好。每种轨迹各一次，不代表重复性已验收；反馈间隔最大124.7 ms仍无法确定精确停止时延。
+
+第六轮后15:46北京时间只读快照after_response06.json仍显示Axis5_MaxStep=4000，尚未恢复；继续告知用户在结束独立测试、恢复普通遥操作前恢复并查询3000。读取未写参数或使能。复算摘要outputs/axis5_response06_summary.json。现有证据支持两侧小行程约3 mm/s轨迹可执行，未证实硬件上限；后续更高速度需先规划轨迹及预算，不直接绕过当前3 mm/s工具上限。
+
+axis5_response_05.csv 已完成564/564帧，102个真实反馈样本；目标峰值2.98590 mm/s、插补峰值加速度3.06761 mm/s²、最大步长3749。采样跟随误差最大0.034309 mm，全样本P95为0.032481 mm，运动阶段样本P95为0.033302 mm；无stop_reason，最终第五轴编码器相对启动偏差0 counts，其他四轴目标保持。实际提交频率49.9985 Hz，周期P95为20.4274 ms，最大20.9115 ms，prime之后ACK队列始终5。
+
+同一分析口径重算04：最大采样误差0.025405 mm，全样本P95为0.023750 mm（不要与运动阶段P95混用），目标峰值2.29779 mm/s，加速度1.92476 mm/s²，最终返回0 counts。05速度与加速度均更高，采样误差增大，但单次日志没有显示失控或无法返回；证明本次轨迹可以执行，尚不能确定连续工作上限、骤停或立即反向性能。
+
+05在hold/settle期间已采集样本的最大终点偏差分别约0.001513/0.001561 mm。不能据此报告精确停止延迟：轨迹渐进减速，反馈最大间隔约123.9 ms，主机提交时刻也不是控制器开始执行时刻。分析中“端点提交至首个持续在0.01 mm内的观测”约28.9/26.3 ms只是主机观测界限，不能当作伺服settling time或宣称优于04。
+
+2026-10-13 15:41北京时间的只读快照 after_response05_20261013.json 显示 Axis5_MaxStep仍为4000，未恢复3000；告知用户在普通driver恢复前恢复并查询确认。本轮助手未写参数。原始04/05文件保持不变，复算脚本与摘要保留于outputs/axis5_response05_analysis.py和axis5_response05_summary.json。
+
+下一步优先重复相同3 mm/s轨迹验证重复性，并分别检查正负方向，暂不由单次结果直接提高上限或调整伺服增益。若继续准备更高速度，需同步核对加速度、步长需求与中止条件。
+
+### 受控 3 mm/s 试验工具已准备（后续更新）
+
+本节更新此前“仅预览、没有误差阈值中止”的状态。新增 --step-cap-counts 4000 后允许最高 3 mm/s，默认仍为3000、2.3 mm/s；可选预算只有3000/4000。执行会在既有 reset/start 之后、第一帧提交之前核对实机回传预算必须完全匹配；不匹配退出并清理。工具不写入 Axis5_MaxStep，也不自动恢复由用户在外部修改的参数。preview-unlimited 仍禁止 execute。未修改 controller、IK、Omega 或下位机源码。
+
+新增 --stop-error-mm，默认0.05 mm，只允许(0,0.05]。每次约10 Hz反馈采样，读取到非负跟随误差达到阈值，或出现非法负误差，写入该样本及stop_reason、刷新日志后退出，通过robot.close()请求abort；不自动发送回程。通信失败仍按已有异常清理。该阈值是基于此前采样峰值0.0254 mm选定的暂定试验中止线，不是额定指标或硬件保护保证；通信延迟和采样间隔内可能继续运动。控制器原报警保持不变。
+
+本轮33项相关离线测试通过，覆盖新预算的正负行程、超速拒绝、预算不一致时零提交、误差超限保存触发样本/停止后不再提交/资源关闭、非法阈值在连接前拒绝，以及原测试。没有执行实机试验。
+
+实机步骤（用户操作，先结束普通driver和其他直连测试）：
+
+1. 在PMAC IDE的gpascii终端查询 Axis5_MaxStep，确认原值仍为3000；再临时输入 Axis5_MaxStep=4000 并查询确认。不要save或下载整个工程。此次只改该变量，Axis5_MaxVel保持400，其余增益、报警、使能设置不手动改。
+2. 运行以下单次5 mm往返。保持此前已确认的50 mm余量；执行入口会reset/start并使能轴，其他四轴目标保持。出现机械异常即停止。当前五次曲线同时改变速度与加速度，不能称为严格单变量速度测试。
+
+```bash
+cd /d/project/surgical_continuum_robot/robo-pmac-driver
+uv run python apps/test_axis5_response.py \
+  --distance-mm 5 --peak-mm-s 3 \
+  --step-cap-counts 4000 --stop-error-mm 0.05 \
+  --confirmed-clearance-mm 50 \
+  --csv outputs/axis5_response_05.csv --execute
+```
+
+3. 无论正常完成还是中止，在测试进程结束后，在PMAC终端输入 Axis5_MaxStep=3000，再查询确认。若通信中断，恢复连接后先核对并恢复，恢复之前不重新启动普通driver。不依赖程序重启恢复，因为本地SystemInit.Reset不重写该全局值，而是将其当前值发布到Modbus。
+4. 保存并分析05日志：采样误差峰值/P95、去程/回程停止后稳定时间、最终编码器返回偏差、提交周期和队列、是否触发中止；与04比较。提交目标与反馈差包含队列延迟，不能冒充伺服跟随误差。当前测试有2 s停留后回程，不覆盖高速立即反向工况，不能据此宣称全动态范围通过。
+
+### 连接恢复后的实机只读核对
+
+2026-10-13 15:33–15:34（北京时间）成功读取，证据为 outputs/axis5_readback/pre_tuning_02.json 和 pre_tuning_03_modes.json；此前超时记录仍保留。此次没有使能、运动、reset、下载或赋值。
+
+- Motor[5].Ctrl=Sys.PosCtrl，pDac=ECAT[0].IO[17].Data.a。项目 ECATMap 将该输出映射到第五从站 607A Targetposition。
+- 控制器中第五从站 6060/6061 符号分别返回 IO[19]/IO[4119]，值均为 8，与 CSP 模式一致。未据此推断精确驱动器型号或额定能力。
+- Axis5_MaxStep=3000，Axis5_MaxVel=400；MaxSpeed=32，InvAmax/InvDmax/InvJmax=10/10/50，与旧记录相同。
+- Kp=4、Ki约0.0001、Kvfb=Kvff=40、Kaff=0 是读到的 PMAC 配置值，不能直接当作当前驱动器位置环增益。FatalFeLimit=1000000，WarnFeLimit=0，均未改动；Servo.MaxPosErr=10000 不能与 FatalFeLimit 混淆。
+- 读取时 AmpEna=0、ClosedLoop=0，DesPos=ActPos=157466。说明读取时状态，不能证明动态跟随性能，也不能仅据未使能判定故障。
+- 本地 systemsetup.cfg 的 JogSpeed=200，实机为100。继续以实机快照记录原值，不能用本地配置整批覆盖。
+
+关键修正：按 [Omron Power PMAC 用户手册的 Position Command Output Algorithm](https://files.omron.eu/downloads/latest/manual/en/o014_power_pmac_users_manual_en.pdf?v=1)，Sys.PosCtrl 输出位置命令，PMAC 不完成该电机的实际伺服闭环，由接收命令的设备闭环。因此当前不能以调整 PMAC Servo.Kp/Ki 为第五轴伺服调参方案。PMAC 轨迹/队列/跟随误差监测与驱动器内部伺服参数需分开核对。[CiA402 模式值说明](https://webhelp.kollmorgen.com/studio/Content/Kollmorgen%20Studio/Object%20Dictionary/Modes%20of%20operation.htm)用于核对8=CSP，不作为本项目驱动器型号或厂商证明。
+
+下一步先准备受控步长预算试验，区分轨迹限制造成的截断与实际跟随能力；若需要调位置环/速度环，应识别驱动器的确切型号和参数接口并保存其原参数。当前尚未给出或执行参数写入方案。
+
+本轮仅准备工具并离线验证，没有运动、下载、reset 或参数写入。对 192.168.0.200 的只读 SSH 连接超时，失败记录保留在 outputs/axis5_readback/20261013_pre_tuning.json；不能将 10 月 9 日记录当作今天的运行参数。
+
+新增 apps/read_axis5_parameters.py：固定查询第五轴位置、使能状态、控制环入口、输出/编码器指针、运动参数、跟随误差阈值、Servo 增益和 PVT 限制。不会实例化机器人控制器，不占用 Modbus mailbox，不包含赋值或运动命令。逐项顺序观察不是同步伺服采样；未识别参数、缺失返回或通信失败均记录为 incomplete，不可作为完整恢复依据。只记录查询响应，不保存密码。
+
+下次设备可连接时先执行（只读，不运动；输出名必须未使用）：
+
+```bash
+cd /d/project/surgical_continuum_robot/robo-pmac-driver
+uv run python apps/read_axis5_parameters.py \
+  --output outputs/axis5_readback/pre_tuning_02.json
+```
+
+test_axis5_response.py 新增 --preview-unlimited：仅离线允许预览最高 3 mm/s，并报告是否超过旧限制及所需步长；与 --execute 互斥，连接硬件前拒绝。实际执行仍限制在 2.3 mm/s、3000 counts/段内。--move-duration-s 可显式延长每个去程/回程的时长，向上取整到 20 ms，不允许因此超过请求峰值；加速度取实际量化后 PVT 三次插值的极值。这里的 ramp_s 表示整段去程时长，包含加速和减速，不是单独的加速时间。
+
+已生成 outputs/axis5_preview_3mms_20261013.csv：5 mm，3 mm/s 请求，单程 3.14 s，实际插补峰值 2.98590 mm/s，峰值加速度 3.06761 mm/s²，最大步长 3749 counts，峰值速度 187.4599 counts/ms。步长超过历史 3000，速度低于历史 400 counts/ms；3749 只是这一条量化轨迹的需求，不是建议直接写入的控制器参数，也不是能力上限。
+
+下一轮执行前仍需完成：
+
+1. 成功保存运行参数并核对控制环实际位置；不能只根据本地 Motor5.msetup 的 Kp/Kvff 就开始调参。
+2. 确定必要的临时步长预算、原值恢复方式及下载/重启后的覆盖关系；保持原跟随误差报警，不因试验放宽报警。
+3. 实现并验证采样误差超限中止条件、停止/反向测试与数据分析。主机约 10 Hz 反馈仅能做辅助中止，不能取代控制器保护；目前工具没有新增自动误差阈值中止功能。出现报警、振动或异常机械声音立即停止，不能仅用“不报警”判定合格。
+4. 先重复已有 2.3 mm/s 档作对照，再考虑已核对的更高档。当前没有可执行的 3 mm/s 命令，不要去掉 preview 标志强行运行。
+
+本轮新增/相关测试 23 项通过：轨迹与轴映射、超限预览禁止执行、显式时长、只读查询、缺失/错误响应与通信失败证据、文件不覆盖及连接关闭。均为离线测试。
+
+## 当前检查点与下一阶段（2026-10-09）
+
+本节是当前状态，后文按时间保留历史分析与测试结果。本检查点是可回退的调试版本，不代表 Omega 延迟验收通过或所有边界条件通过。
+
+### 保留的代码与配置
+
+- driver 可选高精度等待、协议内部计时、延迟 CSV 与离线分析；默认等待仍为 system，实机调试显式指定 windows-highres。
+- 独立计算频率 benchmark 与 Windows 等待实验；测得的计算频率不能当作整条链路最高频率。
+- 独立插入轴速度预算及截断诊断字段。0.01 m/s 保留既有上位机预算，与 live PLC 3000 counts/段取较小值，未放宽实机限制。
+- Omega 当前平移 gain=[0.25,0.25,0.25]；旋转 gain=[1,0,1]；map/sign、wrist-joint 控制、IK、近远端补偿不改。
+- PMAC prog1 预缓冲从 10 改为 5 点，已进行键盘和 Omega 采集。控制器工程中的 EtherCAT 与构建文件的其他本地改动不属于本轮。
+- `apps/test_axis5_response.py`：逻辑 d 经 ContinuumAxisMapper 生成单轴五次平滑往返轨迹，50 Hz、高精度等待；默认 dry-run，执行需显式 --execute 和已确认的行程余量。其他四轴目标保持。工具执行会调用既有 PLC reset/start；不是纯读取入口。Ctrl+C 请求 abort，不自动返回。默认 1 mm、0.5 mm/s；允许最大 5 mm、2.3 mm/s，不自动提速。
+
+`outputs/` 中的原始日志、离线重放脚本、图表和 SSH 读取记录保留在本地，不混入运行代码。失败的 `outputs/omega_02_coordination/` 协调候选仅为实验，未接入 driver：其最大滤波目标位置误差从 5.90 增至 16.79 mm，并出现电机目标速度尖峰，搁置该方案，不继续围绕它重构上层。
+
+### 已有第五轴实测
+
+| 峰值命令速度 | 行程 | 采样最大跟随误差 | 最终编码器返回误差 |
+| --- | --- | --- | --- |
+| 0.5 mm/s | 1 mm | 0.0057 mm | 0 counts |
+| 1 mm/s | 5 mm | 0.0116 mm | 0 counts |
+| 2 mm/s | 5 mm | 0.0177 mm | 0 counts |
+| 2.3 mm/s | 5 mm | 0.0254 mm | 0 counts |
+
+记录为 outputs/axis5_response_01.csv 至 04.csv。跟随误差是 PLC 读取的 abs(DesPos-ActPos) 整数快照，约 10 Hz；可能漏掉瞬时峰值，不是外部机械定位精度。档位的加速度不同，不能视为严格仅改变速度的试验。用户实测平顺；每档单次往返不代表长期或不同负载验收。负载、额定能力和型号仍未知。用户确认总行程约 50 cm、当时两侧余量均大于约 5 cm；相对编码器，不自动回零或设零。
+
+SSH 只读核对过：Axis5_MaxStep=3000、Axis5_MaxVel=400、Motor[5].MaxSpeed=32、InvAmax/InvDmax/InvJmax=10/10/50、MinPos=MaxPos=0、Coord[1].SegMoveTime=0、LHDistance=0。参数适用模式不同，不能把 MaxSpeed 当成 PVT 通用保护或硬件极限。当前步长对应约 2.389 mm/s；Python/PLC 原有截断暂时保留。
+
+### 下一步顺序
+
+1. 固定上层、50 Hz 与 5 点缓冲，先锚定第五轴可用速度、加减速、停止/反向和跟随误差范围。
+2. 新一轮开始前读取并保存当时的第五轴运行参数，明确恢复值；不因已授权读取就自动写参数。
+3. 准备 3 mm/s 小行程对照，先离线确定轨迹、加速度及停止标准。当前工具封顶 2.3 mm/s，且 3000 counts/段不足以支持 3 mm/s，不能仅修改 CLI 上限就运行。需要单独准备、核对必要的临时步长变更及回退；不放宽跟随误差报警来掩盖问题。
+4. 需要判断伺服参数时再采集足够分辨率的内部指令/反馈与负载，按证据调整增益/前馈，避免与轨迹约束同时大改。
+5. 第五轴稳定后依次验证其他轴、五轴联动，最后匹配 IK 轨迹与 Omega 输入。不把“未报警”当作性能上限判据。
+
+### 配置与文档边界
+
+AGENTS.md 中的 xzy 坐标说明是历史说明，与当前 YAML 的 zxy 不一致；以已核对的配置和代码为依据，不据旧说明更改映射。新版 driver 要求 execution.insertion_max_speed_m_s，历史配置仍可用于离线读取，但实机迁移须显式补全。
+
+根目录 teleop_*.csv 及 outputs/ 是本地证据，忽略规则只影响 Git，不删除文件。两仓库提交应仅包含本轮代码，不包含无关 EtherCAT/生成文件；不得将调试检查点命名为整体硬件验收完成。
+
+配套 PMAC 源码检查点：`44950f3`（仅 prog1 的 5 点预缓冲）。提交本身不执行下载，控制器状态需另行核对。
+
+### 检查点软件验证
+
+2026-10-09，显式选择的离线回归共 160 passed、2 deselected，覆盖协议与传输、driver 生命周期、接口配置、等待器、诊断、第五轴轨迹、计算频率工具、Omega 映射、关节电机模型及 IK 边界。未执行全目录 pytest，也未启动硬件。两项未纳入的是既有 Windows SIGTERM 退出码断言测试（dry_run_holds_motor_targets_and_exits_on_sigterm），不计为通过。
+
+Omega 平移测试改为显式参数化 0.5/0.25 增益，同时验证 0.25 增益下 1 mm 输入落入 0.3 mm 输出死区；没有为适应旧断言而恢复运行配置。Git diff --check 通过。回退代码可分别 revert 两仓库检查点提交；本地 Git 回退不会自动改变控制器已下载程序。
+
+## 2026-10-09：限制职责分离的第一步
+
+以下保留当时的设计思路；其中协调约束属于后续研究，不是当前待实施方案。当前工作顺序以上面的“下一步顺序”为准。
+
+`robot_interface.yaml` 新增 `execution.insertion_max_speed_m_s`，仅定义逻辑插入轴 d 的速度预算，不再借用 `command.max_speed_m_s[2]`（WORLD Z）。当前显式值 0.01 m/s 保留原主配置的上位机预算，不代表第五轴已经验证能达到该速度。实机预算仍取该速度换算步长与控制器回传 `Axis5_MaxStep` 的较小值：50 Hz、62781744 counts/m、PLC 3000 counts/段时，有效上限仍是 3000 counts/段，约 2.389 mm/s。dry-run 不读取 PLC，只有上位机预算，不冒充实机保护值。
+
+历史 YAML 仍可由配置加载器读取以供离线分析，但新 driver 在连接硬件前要求显式填写该执行参数，不根据 WORLD Z 静默推断。使用其他接口配置启动时需逐一核对并迁移。
+
+开启 latency CSV 后增加 `insertion_step_limit_counts`、`insertion_requested_step_counts`、`insertion_applied_step_counts`、`insertion_step_clipped`。前两种步长分别是截断前请求和取整后实际目标增量；截断标志表示请求幅值超过当前预算。若显式锁定插入轴，请求值是锁定处理后的请求。没有额外硬件读取。
+
+本步骤尚未改变单轴截断行为，也没有解决动态追赶。下一阶段的协调约束应位于 IK 候选目标与 PVT 提交之间，在提交任何轴之前验证完整五轴轨迹，并只将最终接受目标作为 warm-start。不能只把各轴最大增量归一化后就宣称保持笛卡尔路径；需离线验证位置与方向误差、每段插补峰值速度/加速度、hold/反向和不可达目标。各轴能力未统一前，不删除 PLC 最终保护，不修改 Omega 映射。
+
+现象：键盘与 Omega 都表现为起停偏晚、过程顺畅。优先定位共用的滤波、提交等待和轨迹缓冲；不预先归因于电机增益。首轮保持 50 Hz 和已有参数。
+
+## 采集
+
+给原先确认可用的 driver 启动命令追加：
+
+```text
+--latency-csv outputs/latency_keyboard_01.csv
+```
+
+这只是追加参数，不是完整启动命令。保留原来的环境、连接参数和执行选择，不自动添加 `--execute`。driver 的实机启动本来会复位 PLC 并启动程序；只在用户安排的下一次实机测试中启用记录。不要启动第二个直连 PMAC 的程序。文件必须不存在，避免覆盖历史证据。
+
+使用既有键盘工具，在用户已确认安全的范围内：静止约 2 秒，单方向小幅移动并停止，等待停稳，再反向；重复 3 次。不要直接使用离线 benchmark 的压力目标。记录使用哪个键、哪根轴、停止指的是松键还是显式 hold。首轮不提高反馈频率、不改变滤波、速度或缓冲。
+
+正常 Ctrl+C 结束会关闭日志。每 50 帧刷新一次，强制终止可能丢失尾部数据。日志是同步缓冲写入，可能扰动周期；`previous_log_ms` 单独记录上一帧日志耗时（含定期刷新），`work_before_log_ms` 不包含当前日志写入和 sleep。默认不开启，无额外 PMAC 请求。
+
+## 分析
+
+```powershell
+uv run --no-project --with numpy --with matplotlib python -B apps/analyze_latency.py outputs/latency_keyboard_01.csv --out outputs/latency_keyboard_01_analysis
+```
+
+输出：
+
+- timing.png：实际周期间隔、IK+映射耗时、PVT 提交耗时、新反馈读取耗时、软件队列与反馈年龄。
+- commands.png：最近接受的原始 WORLD 目标与实际滤波输出，平移 mm、旋转 deg。hold 后 raw 仍是最后接受的原始目标，必须结合 holding/received_kind 理解，不代表继续追赶。
+- axes.png：五根物理轴的已提交目标与新编码器反馈。反馈只画真正读取的样本，横向误差条表示主机请求起止区间，不能称为准确的控制器采样时刻。
+- summary.json：各耗时 P50/P95/P99/最大值。
+
+dry-run 不填真实反馈、队列和提交耗时，不用目标冒充实测编码器。主机时间均为相对本次循环启动的 monotonic 秒。未收到新反馈时保留上一次请求区间，feedback_new=false，不能当成新采样。
+
+queued_at_ack 是成功确认时已有状态响应中的软件队列点数，不增加 Modbus 读取。它不包含 PMAC 内部所有插补缓冲，不保证与 token 在控制器端原子采样；不能将 queued×20ms 当成精确总延迟。accepted_token 只证明入队，不能证明到达。
+
+## 根据证据定位
+
+1. raw→applied 明显追赶：优先看滤波/限速。当前平移限速 10 mm/s，目标位置差会产生真实的追赶时间，不是纯固定延迟。
+2. 周期明显大于 20 ms：检查 submit_ms、feedback_ms、ik_mapping_ms 与 previous_log_ms 谁占时间。
+3. 提交及时，所有物理轴反馈整体晚：核对控制器已下载版本、预缓冲与实际排队。10 点表示约 200 ms 的轨迹量，不直接等于固定实测延迟。
+4. 需要判断伺服时，在后续控制器采集中比较同期插补位置指令与编码器。当前日志没有插补指令，不能把主机目标减反馈命名为伺服跟随误差。
+
+默认反馈只有 10 Hz，首轮只能定位较粗的延迟。亚百毫秒延迟、控制器缓冲与伺服的分离，需后续更合适的控制器采样；不能从插值后的低频反馈图声称精确延迟。跨进程的发送端时间戳本轮未用于延迟计算，未测键盘输入到 driver 接收的完整端到端时间。
+
+## 第二轮：协议内部计时（latency_schema=2）
+
+仍使用 `--latency-csv`，在新启动的 driver 中自动开启协议计时，无需额外选项。已运行的进程不会因磁盘代码更新自动启用；不要另开第二个 driver。下一次由用户正常结束旧会话、启动新会话时，换用 `outputs/latency_keyboard_02.csv`，保持 50 Hz、原滤波和原 PVT 缓冲参数，重复同样的小幅键盘动作。
+
+新增列分别带 `pvt_` 和 `snapshot_` 前缀：
+
+| 字段 | 含义 |
+| --- | --- |
+| total_ms | 持有 mailbox 锁后的事务耗时，不含拿锁等待 |
+| read_ms / write_ms | Modbus 读/写调用累计墙钟耗时，包含库内部和系统调度，不是纯网络 RTT |
+| reads / writes | 调用次数，包括失败调用 |
+| polls | wait 中执行条件检查的次数，不等于所有状态读取次数 |
+| sleeps | wait 显式休眠次数 |
+| sleep_requested_ms / sleep_ms | 请求休眠累计值 / 实际休眠累计耗时 |
+| success | 事务是否正常完成 |
+
+只在新的反馈请求周期填写 snapshot 数据，其余为空，避免将缓存统计重复计算。没有新增控制器访问或重试，也不调整 sleep、超时、定时器、优先级或控制频率。失败事务在协议对象中保留 success=false 并清理活动计时上下文；现有 driver 异常路径不会输出该未完成周期的 CSV 行，所以 CSV 不构成完整故障事务审计。
+
+新增 `previous_cycle_sleep_requested_ms` / `previous_cycle_sleep_actual_ms` 对应上一周期末的调度休眠，应与本行 period_ms 对齐看。第一行两者为 0，没有前一周期。日志头保存 Python 版本、轮询间隔和 schema。
+
+新版分析器兼容旧日志，并为新日志生成 protocol_timing.png，分别显示提交、反馈事务和循环末休眠。将每周期 read_ms + write_ms + sleep_ms 与该事务 total_ms 比较，剩余部分为 Python 处理、测量开销等；不能将各项的 P99 分别相加后当成总 P99。
+
+判断：若 read/write 较短、sleep_requested=1 ms 而 sleep_ms 接近 15 ms，优先处理显式休眠唤醒；若耗时主要位于读写调用，先继续定位 Modbus/控制器响应，不能仅凭独立 sleep 探针就改等待方式。供点恢复稳定后再评估减小缓冲。
+
+## 当前验证状态
+
+已通过离线记录、滤波/hold、禁止 dry-run 创建硬件控制器、旧文件拒绝覆盖、ACK 状态复用与错误后清缓存检查。协议/生命周期组合测试中 34 项通过，两个原有子进程 SIGTERM 测试在 Windows 的退出码断言失败（运动保持断言已通过）；没有把这两个失败隐藏为全面通过。未上机采集，尚未确定真实故障根因。
+
+使用 HEAD 未修改的 driver 脚本再次执行这两个子进程用例，同样在退出码断言失败，确认并非新增日志逻辑引入。新增分析脚本已用 dry-run 日志完成图表生成验证。
+
+补充假控制器用例后，排除上述两个已知 Windows 退出用例的复测为 35 passed、2 deselected；假控制器验证了提交耗时、已有 ACK 队列状态和反馈请求时间区间，未访问真实硬件。
+
+第二轮计时增加确定性时钟和延迟确认测试，验证请求 1 ms/实耗 15 ms 的区分、读写累计耗时、状态隔离、失败后清理，以及开启/关闭计时的请求序列完全一致。协议与 driver 相关复测为 36 passed、2 deselected（仍排除上述已复现的 Windows 退出用例）。
+
+## 第三轮：验证高精度等待对实机供点的影响
+
+使用可选 `--wait-mode windows-highres`，替换协议轮询等待及主控制循环末尾等待。默认仍为 `system`。不调整 50 Hz、滤波、速度或缓冲参数；不改变全局系统定时器分辨率，不忙等。未启用的启动返回参考路径仍保留原有循环等待。创建高精度定时器失败时在连接硬件前报错，不静默回退。
+
+先正常结束旧键盘和旧 driver，确认只有一个进程占用 mailbox。以下是用户手动进行第三轮实机测试的 Git Bash 命令，`--execute` 会执行原有硬件启动流程。
+
+终端一：
+
+```bash
+cd /d/project/surgical_continuum_robot/robo-pmac-driver
+uv run python apps/continuum_driver_server.py \
+  --interface-config config/robot_interface.yaml \
+  --wait-mode windows-highres \
+  --latency-csv outputs/latency_keyboard_03.csv \
+  --execute
+```
+
+确认启动输出 `Wait mode: windows-highres`。日志文件必须不存在；已有文件时换新文件名，不删除旧证据。
+
+终端二：
+
+```bash
+cd /d/project/surgical_continuum_robot/robo-pmac-driver
+uv run apps/teleop_pvt_keyboard_pose.py
+```
+
+静止约 3 秒，在此前已确认安全的小范围内分别做 X（A/D）、Z（W/S）正反移动，每次松键后等待约 3 秒，重复约 3 组。尽量复现第二轮的动作和幅度，不同时按多个方向，总计约 30–45 秒。松键停止增加目标，不等于立即 hold。记录主观起停迟滞有无变化。
+
+正常结束时先在键盘窗口按 Esc 或 Ctrl+C；该工具会执行约 5 秒返回启动位置，等待其完成，再在 driver 窗口 Ctrl+C 关闭日志。这是正常退出流程，不是急停。
+
+采集后比较第二、三轮：请求/实际休眠、周期分布与超期比例、PVT 提交和反馈读取耗时、队列变化、目标/反馈粗略滞后。单轮动作和系统负载未完全匹配时不能作严格因果量化。若供点变稳定但仍有迟滞，再检查控制器缓冲及同期插补指令/编码器反馈。
+
+离线验证：46 passed、2 deselected，排除上文已复现的 Windows SIGTERM 退出用例。2026-10-09 使用项目 Python 3.10.20 对生产等待实现进行每模式 100 次、请求 1 ms 的无硬件抽测：system 中位数 15.514 ms、P95 17.625 ms；windows-highres 中位数 1.714 ms、P95 2.082 ms，原始摘要位于 `outputs/highres_backend_20261009.json`。这些结果不表示实机延迟已改善，也不是实时性保证。
+
+需要恢复时改用 `--wait-mode system` 并选新的日志文件名。
+
+## 2026-10-13：第五轴加减速对照结果
+
+### 连续换向实机结果
+
+`axis5_reversals_01.csv` 在分析期间被新一轮采集重写，故等待完整结束后将本轮原始数据保存为 `outputs/axis5_reversals_01_review/capture.csv`，统计保存为同目录 summary.json，未将早先同名记录混入比较。最新一轮 1150/1150 帧、23 s、207 个反馈样本，供点约 49.998 Hz，最大周期 21.1024 ms，预填充后队列固定 5。其他四轴目标保持，无停止原因，最终第五轴编码器回到启动值。用户反馈“效果还行”。
+
+5 mm/s²、4 mm/s 预算下，六组主机发送阶段对应的最大采样误差依次为 0.04192、0.03546、0.04442、0.03076、0.03447、0.03033 mm，未表现为逐组增长。全程最大 0.044424 mm，距 0.05 mm 阈值约 0.005576 mm；hold 阶段最大 0.01642 mm。阶段划分基于主机发送，不等于同步控制器阶段，约 10 Hz 采样不能排除间隔内更大的误差。结论仅为这一短程连续换向测试完成，尚不能认定长期稳定或所有负载适用。保留 4 mm/s、5 mm/s² 为候选，暂不提高；后续仍需同生成器的较长匀速段，再进行 Omega 联动验证。默认参数和 PMAC 未修改。
+
+### 6 档双向结果及连续换向准备
+
+03/04 两轮均完整 1000 帧、约 50 Hz、预填充后队列 5、无停止原因、其他轴目标保持，最终回到启动编码器值。正向/负向最大采样跟随误差分别 0.046988/0.039422 mm；制动轨迹均为 0.70 s、约 1.38827 mm。正向距 0.05 mm 阈值仍仅约 0.003 mm，不能声称 6 档已经比 7.5 档获得稳定余量。摘要保存于 `outputs/axis5_profile_events_03_04_summary.json`。
+
+用户提出快速换向验证。新增 `--repeat-reversals`，仅允许事件模式加速度 5 mm/s²，保持速度 4 mm/s、单侧 5 mm 目标范围、6500 临时预算和误差阈值。目标在起点与 5 mm 间每秒切换，连续 6 对，然后 hold 制动、明确返回、静止结束，共 23 s。目标跳变不意味着电机瞬间反向；输出由同一候选生成器减速换向。正负方向/轴符号、曲线边界、返回和原有相关测试共 82 项通过。预览峰值速度 3.99995 mm/s、加速度 4.99285 mm/s²、最大步长 5022 counts。待用户采集 `outputs/axis5_reversals_01.csv`，本轮没有操作硬件或切换默认配置。
+
+### 6 mm/s² 中间档准备（待用户实机采集）
+
+事件模式新增 6 mm/s² 档，速度仍为 4 mm/s、单侧范围 5 mm，其他预算和误差阈值不变。预览 `outputs/axis5_profile_events_preview_03.csv` 峰值速度 3.99995 mm/s、加速度 5.98183 mm/s²、最大步长 5022 counts。含正负方向/符号组合及现有回归测试共 77 项通过。先依次采集正向 `axis5_profile_events_03.csv` 与负向 `axis5_profile_events_04.csv`，后者仅在前轮正常完成且反向余量确认后执行。未通过或报错时不继续下一轮。之后再决定重复性与较长匀速段验证，尚未宣布第五轴单轴验收或将候选写入默认配置。常规余弦轨迹仍不接受 6 档；本轮未操作硬件。
+
+### 事件测试第二档准备（7.5 mm/s²，未实机执行）
+
+更新：第二档实机已完成，记录 `outputs/axis5_profile_events_02.csv`（2026-10-13 17:24），对照摘要 `outputs/axis5_profile_events_comparison.json`。两轮均 1000/1000 帧、最终第五轴编码器回到启动值、其余轴目标保持、预填充后队列 5，未记录停止。第二轮供点约 49.993 Hz，最大周期间隔 26.881 ms。最大采样跟随误差由 0.032239 mm 增至 0.047036 mm，距 0.05 mm 阈值仅约 0.002964 mm；误差 P95（下侧经验分位数）由 0.024291 增至 0.042146 mm。hold 发送轨迹的制动时间/距离由 0.86 s/1.67963 mm 降至 0.56 s/1.10161 mm；首次观察到后续稳定在停止目标 ±0.01 mm 内的时间约 0.892→0.706 s，包含队列和低频采样，不能当作精确伺服停稳时间。用户反馈“更利落，换向正常”。结论：7.5 档短程通过但误差余量明显缩小，不直接作为默认稳定参数、不继续向上提高；若追求折中，建议随后单独验证 6 mm/s²，当前入口尚未开放此值。默认配置及控制器参数未更改。
+
+`--profile-events` 现在仅接受加速度 5 或 7.5 mm/s²，其他条件仍固定为单侧 5 mm、速度 4 mm/s、临时步长预算 6500；0.05 mm 采样误差阈值不放宽。常规余弦轨迹不接受 7.5 档。预览 `outputs/axis5_profile_events_preview_02.csv` 的峰值速度 3.99995 mm/s、峰值加速度 7.49326 mm/s²、最大步长 5022 counts，1000 帧。正负轴符号/方向及相关测试共 73 项通过。下一次用户命令沿用事件测试，仅改 `--accel-mm-s2 7.5` 和 `--csv outputs/axis5_profile_events_02.csv`。此档只是实验候选，不是已验证运行参数；没有更改 PMAC 或默认 driver 配置。
+
+### 候选生成器实机测试入口（尚未执行）
+
+更新：`outputs/axis5_profile_events_01.csv` 已完成实机采集（2026-10-13 17:11）。1000/1000 帧、约 49.999 Hz，预填充后报告队列固定 5，其他四轴目标保持；未记录阈值停止，最终第五轴编码器回到本次启动值。180 个反馈样本中最大绝对跟随误差 0.03224 mm，低于本轮 0.05 mm 阈值。按主机发送阶段分组，reverse/brake_hold 的最大采样误差分别 0.02781/0.02939 mm，阶段标签不等于控制器同步阶段。
+
+hold 指令开始后，生成器输出仍需 0.86 s 才到零速度，发送位置继续前进 1.67963 mm；约 0.892 s 后首次观察到此后均保持在最终停止目标 ±0.01 mm 内的反馈。后者包括队列及约 10 Hz 采样，不能解读为精确伺服停稳时间，也不能相减得到精确链路延迟。运动中换向亦先按预算制动。用户反馈“启动停止速度还行，如果能更快更好”。本轮表明这个短程事件轨迹完成且采样误差留有余量，不代表长时间匀速、更高加速度或五轴 Omega 已验收。下一轮若继续追求更快起停，应保持 4 mm/s 不变、仅提高加速度做对照；当前工具仍只开放已测试的 5 mm/s² 事件方案，不自动提高预算或切换默认配置。
+
+`apps/test_axis5_response.py --profile-events` 直接复用 `InsertionProfile`，固定 5 mm 单侧目标范围、4 mm/s、5 mm/s²、50 Hz。顺序：静止预填充 1 s，向 5 mm 目标运行 1 s 后改为起点目标（运动中换向），等待到位；再次运行 1 s 后发送 hold 并制动保持；最后明确返回起点、静止结束。总计 20 s。发生误差停止或中断时不执行余下阶段、不自动返回。正常完成会返回。其他四轴目标保持。
+
+默认 dry-run，不导入控制器；只有 `--execute` 才进入原有 reset/start 生命周期。执行前停止普通 driver，确认 PMAC 临时 Axis5_MaxStep=6500（工具只核对，不写参数），并确认当前逻辑正向至少 5 mm 可用行程。保留 0.05 mm 主机采样误差阈值。启动后按新鲜编码器参考重新生成并验证全程范围、端点及三次曲线速度/加速度。
+
+```bash
+uv run python apps/test_axis5_response.py \
+  --profile-events --distance-mm 5 --peak-mm-s 4 --accel-mm-s2 5 \
+  --step-cap-counts 6500 --stop-error-mm 0.05 \
+  --confirmed-clearance-mm 5 \
+  --csv outputs/axis5_profile_events_01.csv --execute
+```
+
+预览 `outputs/axis5_profile_events_preview_01.csv`：1000 帧，峰值速度 3.99897 mm/s、加速度 4.99413 mm/s²、最大步长 5021 counts。正负逻辑方向与正负轴符号组合、反向时先制动、hold 后不回摆、正常返回、参数越界拒绝与已有生命周期/错误停止测试共 69 项通过。新增 CSV 字段 requested_d_mm、profile_holding 区分改目标与 hold；旧平滑往返分析脚本不能直接套用新事件阶段。本轮没有连接或运行硬件。
+
+### 候选生成器边界修正（未切换默认配置）
+
+`InsertionProfile` 的制动距离改为按完整 PVT 周期求和：最后一个不足满减速量的速度段仍持续 20 ms，不能直接套用连续时间 v²/(2a)。通过单调二分选择下一周期端点速度；换向仍受当前速度与加速度预算限制，不能瞬间反向。到位时允许一段直接停到目标，但需验证量化后整段速度/加速度、步长和单调性，禁止为消除小误差引入越过目标的回摆。hold 继续按预算制动后保持，不伪装为瞬时急停。
+
+新增独立多点采样三次曲线的验证，覆盖正负方向、1 count 到 15 mm、两档加速度、大绝对编码器参考、满速反向和 hold。与已有 driver 日志/默认路径检查共 19 项通过，无硬件访问。
+
+更新后的同一 2036 帧重放仍精确复现原基线；5 mm/s² 候选的发送侧模型位置误差 P95=3.44867 mm、最大=5.96609 mm，与修正前约 3.44886/5.96669 mm 基本相同。满速 hold 探针仍需 0.86 s、约 1.680 mm 制动距离。边界修正不能消除受加速度预算约束的物理制动距离，也没有证明实机延迟已改善。保留候选实现，默认参数和 PMAC 均未更改；低档实验 YAML 也未自动改为高档。
+
+### 执行层职责与换向检查
+
+离线脚本及结果位于 `outputs/coordination_replay/`。原基线再次精确复现 2036 帧发送位置与滤波值，其中活动帧 1166。当前 Python driver 在 IK 和轴映射之后仅修改第五轴位置/速度；另外四轴保持 IK 给出的目标。本地 prog1 也只钳制第五轴步长和端点速度。后者是源码检查，不是已下载版本验证。
+
+在同一历史记录上，限步前由 IK 目标脉冲反解 FK 的位置误差最大 0.04783 mm；限步后最大 5.89655 mm。当前记录 use_sheath=false，第五轴 d 在 FK 中只改变插入平移，本轮限步几乎不改变工具轴方向。不能因此断言所有机构状态均只影响平移。
+
+诊断性地把逻辑五轴从上一目标到本轮 IK 目标按同一比例推进，再通过 ContinuumAxisMapper 转换，结果更差：在相同 3000 counts 步长预算下，位置误差 P95/最大从 3.622/5.897 mm 增至 9.108/11.523 mm，工具轴方向误差最大从约 0.00114° 增至 5.572°。该实验仅比较离散端点，未满足加速度或 PVT 连续性条件，不可执行。拒绝将“统一缩放五轴”作为修复。
+
+速度连续性重建揭示另一问题：默认第五轴端点速度取本段位移/20 ms，只限步长不保证相邻端点速度平滑。按这一公式和连续端点三次 Hermite 插补重建，原 3000 counts 路径的峰值速度约 3.982 mm/s、峰值加速度约 955.69 mm/s²；把步长单独扩大到 5023 counts 后，分别约 5.334 mm/s 与 1150.97 mm/s²。原基线 1166 个活动段中 497 个段的重建峰值加速度超过 5 mm/s²。这些是请求轨迹的理论重建，不是控制器实测；历史日志不含线上的速度字段，也未重现控制器启动段或内部插补细节，不能据此证明某次误差故障原因。它足以说明仅把 4 mm/s 换算成每周期允许位移，不能保证连续曲线处处小于 4 mm/s，更不能把平滑单轴测试结果直接移植给任意遥操作轨迹。
+
+下一步方向收敛为执行轨迹的速度连续性、换向和制动距离验证；保留 IK、Omega 映射及默认配置。应在生成端以量化后的 PVT 曲线检查速度/加速度，PMAC 保持独立保护；不再尝试简单同步缩放五轴，也不以调 Jog 参数替代 PVT 轨迹验证。本轮未运行硬件、未调整控制器参数。
+
+### 后续离线 Omega 重放
+
+使用 `outputs/latency_omega_02_review/capture.csv` 的历史命令和配置快照，原基线所有目标脉冲与滤波输出均精确重建。保留 WORLD 滤波、IK、其他四轴逻辑，比较插入速度 4 mm/s、加速度 1.95 与 5 mm/s²。输出位于 `outputs/insertion_accel_replay/`。这只模拟发送侧轨迹及 FK，不模拟伺服、通信、缓冲或操作者闭环反应。
+
+| 发送侧 FK 相对滤波目标的位置误差 | 原基线 | 1.95 mm/s² | 5 mm/s² |
+| --- | --- | --- | --- |
+| 活动帧 P95 / mm | 3.62217 | 6.68329 | 3.44886 |
+| 活动帧最大 / mm | 5.89655 | 7.90284 | 5.96669 |
+
+所有方案活动帧 IK 均收敛。5 mm/s² 相比低加速度方案明显改善，但相比原基线 P95 仅降低约 4.8%，最大值增加约 1.2%，局部反向阶段仍出现较大误差，不能视为五轴协调问题已解决。
+
+另做生成器满速后 hold 的离线探针：1.95 档需 2.34 s、继续移动 4.675 mm；5 档需 0.86 s、继续移动 1.680 mm。这是该生成器按加速度预算减速的输出，不是实测停机时间，也不是急停行为。停止增加位置目标与发送 hold 仍需分开解释。
+
+结论：不把低档实验方案投入默认配置，也不以本次数据自动启用高档。下一步应先处理执行轨迹的五轴时间协调和换向行为，再验证实机。当前单轴实测证明高加速度可运行一次，但不能保证任意 Omega 轨迹都达到同样跟随误差。
+
+以当天 16:41–16:42 更新的 `outputs/axis5_response_10.csv`、`axis5_response_11.csv` 为准；较早的同名文件统计不能代替本轮数据。离线摘要为 `outputs/axis5_accel_comparison_summary_latest.json`，其中附带的控制器只读快照采于 16:37，早于本轮重测。
+
+两档均为 15 mm 往返、峰值速度 3.99034 mm/s、50 Hz、步长预算 6500 counts、主机采样误差停止阈值 0.05 mm。改变测试轨迹的加减速段，没有调整 Motor[5].JogTa/JogSpeed 或伺服增益。
+
+| 指标 | 低档（10） | 高档（11） |
+| --- | --- | --- |
+| 请求加速度 mm/s² | 1.95 | 5 |
+| 量化后插补峰值加速度 mm/s² | 2.06175 | 5.15421 |
+| 单次加速或减速段 s | 3.24 | 1.26 |
+| 采样最大跟随误差 mm | 0.0447423 | 0.0469245 |
+| 完成帧数 | 950/950 | 752/752 |
+| 最终反馈相对启动 counts | 0 | 0 |
+
+两轮未记录停止原因，供点约 50 Hz，预填充后报告队列均为 5。用户反馈高档起停明显更及时、运动正常。结果支持提高轨迹加减速度能改善手感，也说明先前约 1.95 mm/s² 只是已测试轨迹值，不能当作电机能力上限；不能据此认定 JogTa 是遥操作迟滞根因。
+
+高档最大采样误差距 0.05 mm 阈值仅约 0.00308 mm。高档匀速段也由 0.52 s 延长到 2.50 s；按主机时间取匀速段内部窗口，仍有约 0.047 mm 误差，因此不能将误差增加全部归因于加速度。窗口不是控制器同步阶段判定。反馈约 10 Hz，不能排除采样间更大的误差，也不能将提交结束到首次到位反馈的约 0.1 s 解释为精确伺服停稳时间。
+
+后续保持 50 Hz，先用更高加减速度候选值复核已有 Omega 记录的离线轨迹与协调误差，通过后再进行小范围实机对照；本轮不修改默认配置、不放宽跟随误差阈值。16:37 只读快照中的 Axis5_MaxStep 为临时测试值 6500，普通遥操作启动前必须重新核对预算，不能假设已恢复默认 3000。
+
+## 2026-10-14: separate IK differentiation from execution policy
+
+Responsibilities agreed for the current chain:
+- Omega/LeRobot: master sampling, clutch/reference, frame mapping, gains and deadband.
+- IK: position/tool-axis task, geometric feasibility, convergence/error reporting.
+  Geometry derivatives must not differentiate a coupled limit projection as if
+  only one coordinate changed. Solver candidate projection still enforces limits.
+- Python driver: command lifetime, acceptance of solver output, executable motor
+  trajectories and feedback monitoring. Smooth Cartesian input alone is insufficient.
+- PMAC: PVT interpolation/servo execution and local fault/watchdog protection.
+  Existing protection is retained; hard limit inputs are a separate future task.
+
+The local IK change extracts private bending geometry for finite-difference probes.
+Public FK, candidate clipping, DLS damping/weights, line search, task definition,
+actuator calibration and PMAC parameters remain unchanged. Insertion probes remain
+within their interval; sheath insertion geometry remains piecewise as before.
+This is a derivative correction, not a trajectory acceptance policy.
+
+Offline replay: `outputs/teleop_news_01.csv`, 4403 cycles, using recorded applied
+WORLD commands/holding flags and embedded YAML; initial axis 1-4 reference inferred
+from the first target, axis 5 zero from this run's configuration. Pulse scales use
+current local constants because the old CSV does not embed them. The old solver
+(HEAD at time of replay) with insertion profiling reproduces all five target pulse
+columns exactly. The fixed replay propagates its own accepted target warm-start
+and insertion profile; it does not reset to recorded targets at every cycle.
+
+Maximum per-cycle output-equivalent rotation step in physical axes 1..4 (rad):
+- Old: 0.1225725, 0.3530784, 0.1194985, 0.2573553.
+- Fixed: 0.0433003, 0.0324586, 0.0330998, 0.1037553.
+Active nonconverged cycles: old 1789/4063, fixed 1767/4063.
+P95 solver position residual: old 39.735 mm, fixed 45.282 mm. These are solver
+residuals before insertion profiling, not measured mechanical error. The derivative
+fix reduces the largest jump but does not guarantee tracking or executable speed.
+Replay is deterministic software evidence, not simulated PMAC or hardware validation.
+
+Still outstanding: define/test solver-result acceptance and coordinated motor
+trajectory continuity using validated axis capabilities. Do not interpret the
+remaining ~5.95 degree single-cycle target change as a safe hardware allowance.
+No new motor thresholds or per-axis clipping were added in this change.
+Replay details/scripts are in `outputs/teleop_news_01_analysis/`.
+
+## 2026-10-14: iteration budget study (fixed initial state per sample)
+
+Using the corrected Jacobian, each of 4063 non-holding samples starts from the
+same previous recorded motor target for all budgets. The recorded filtered
+WORLD target remains fixed during each solve. Checkpoints at 8/16/32/64 steps
+preserve normal early convergence. This is a per-sample comparison, not the
+self-propagating trajectory replay above; motor-step maxima must not be compared
+between those two protocols as if they measured the same trajectory.
+
+| Iteration budget | Converged | Solver time P95 (ms) | Position residual P95 (mm) |
+| --- | --- | --- | --- |
+| 8 | 2296/4063 (56.51%) | 7.96 | 39.166 |
+| 16 | 2296/4063 (56.51%) | 15.20 | 39.165 |
+| 32 | 2296/4063 (56.51%) | 30.17 | 39.163 |
+| 64 | 2296/4063 (56.51%) | 60.00 | 39.103 |
+
+No sample gained convergence at 64 versus 8. Timing sums actual step computation,
+excludes communication, logging, state broadcast and other driver work, and is
+one local measurement rather than a hardware scheduling guarantee. Weighted
+position norm must be <=0.0002 and weighted direction norm <=0.001. Direction
+weight is 0.8: the recorded criterion is not an unweighted angle tolerance.
+
+Fixed-target cases at 26.74, 27.62 and 31.72 seconds each used 8 seeds (recorded,
+straight at the recorded insertion, six deterministic random feasible seeds)
+and up to 512 iterations without execution profiling. None converged. Best final
+position residuals across these seeds were 39.13, 27.99 and 27.33 mm respectively.
+This rules against simply increasing the budget as the next fix for these cases;
+it does not prove global infeasibility. Position/direction compatibility, objective
+scaling and constrained-solver behavior need independent investigation.
+
+No runtime budget, weights, thresholds or PMAC parameters were changed. Scripts
+and detailed results: `outputs/teleop_news_01_analysis/iteration_study.py` and
+`iteration_study.json`. Original source CSV was not modified.
+
+## 2026-10-14: independent bounded feasibility audit
+
+Three recorded filtered targets (26.74, 27.62, 31.72 s) were checked with SciPy
+bounded trust-region reflective least squares, independent of DLS/its projection
+and finite-difference implementation. FK/geometry deliberately remain the same
+model. Variables are [d,theta_a,phi_a,theta_c,phi_c]; the recorded no-sheath bounds
+are d in [0,.255], theta_a in [0,pi], theta_c in [0,pi/2]. Phi search [-2pi,2pi]
+covers full periodic directions. Each task uses 12 starts, at most 1500 function
+evaluations, 3-point differences, and variable scaling. First use residuals
+normalized by the existing convergence tolerances; repeat the combined problem
+with the original task weights. Optimizer success is NOT counted as robot-task
+convergence: both separate residual norms must meet the configured tolerances.
+
+For every target, position-only and direction-only each pass 12/12 starts;
+combined tasks pass 0/12 under both weighting choices. Best normalized-objective
+combined results (position mm / direction angle deg):
+- 26.74 s: 6.935 / 0.2603.
+- 27.62 s: 19.254 / 0.8227.
+- 31.72 s: 18.358 / 0.7857.
+
+With the original weights, direction meets its threshold but position does not:
+7.008, 19.517, 18.609 mm respectively. These best solutions reach theta_a=pi.
+The independent optimizer finds smaller residuals than the current DLS on these
+cases, so constrained solver strategy also matters; do not attribute all error
+solely to global infeasibility or operator speed. A generated reachable target
+was recovered from 5/12 random starts, illustrating that local minima still
+exist in the independent method. No numerical failure here proves global
+infeasibility. FK is shared, so this is not independent model calibration.
+
+Execution-policy direction (not deployed):
+- IK reports feasible candidate, residuals and constraint activity; no direct
+  motion authorization merely because a solve terminates.
+- Driver must qualify candidate progress and generate a continuous executable
+  transition. Rejecting every nonconverged intermediate result can freeze useful
+  approach motion; accepting all such results can allow large jumps.
+- Retain last accepted reference, report held/limited reasons, and avoid storing
+  a queue of obsolete master targets. No automatic return to zero on rejection.
+- Do not add arbitrary axis 1-4 speed/acceleration caps from this recording;
+  validated per-axis capabilities are not yet available as execution config.
+  Any future time scaling/trajectory generation must account for all axes and
+  PVT velocity endpoints, rather than independently clipping axis positions.
+- PMAC remains responsible for local following-error/watchdog/fault protection.
+
+This turn only added offline evidence and policy documentation. Runtime solver,
+master mapping, execution profile and PMAC parameters were not modified.
+Artifacts: feasibility.py/json, feasibility_original_weights.py/json and
+feasibility_control.json under outputs/teleop_news_01_analysis/.
+
+## 2026-10-14: rotary anomaly guard, fail-stop scope
+
+User chose detection + session stop, postponing continuous trajectory shaping
+until rotary capabilities are validated. `RotaryTargetGuard` checks the cubic PVT
+velocity maximum in all four logical rotary axes before any candidate submission,
+using physical-to-logical mapping and wire-quantized endpoint velocities. It does
+not use IK convergence as a stop condition, mutate accepted targets, or relax
+geometric bounds. A trip aborts the session through existing controller cleanup;
+unique JSON evidence is written after cleanup. Unit/integration tests verify a
+rejected candidate is never submitted and cleanup precedes evidence persistence.
+
+Provisional anomaly threshold is 2.5 rad/s. At 20 ms, average motion at this value
+would be 0.05 rad (2.86 deg); the actual check uses the cubic peak, not just this
+endpoint difference. This is an application anomaly threshold selected for this
+recording, not motor capability calibration or a guaranteed safe speed.
+
+Shadow replay (continues calculating after a hypothetical trip for analysis):
+- Original trace: trips at 27.620, 27.640, 31.720, 31.740, 58.242 s.
+  The major peak values are 17.157 and 23.539 rad/s at the two diagnosed events.
+- Corrected IK, self-propagating replay: trips at 31.340, 31.360, 40.800 s,
+  with peaks 6.917, 5.188, 2.590 rad/s.
+- In a real run the first trip ends the session; later shadow events do not
+  represent events that would actually be submitted afterward.
+Other segments in this recording pass without modification; this does not prove
+all ordinary operation is unaffected. No extra latency filter was introduced.
+
+Scope limits: cubic peak velocity only; no validated rotary acceleration/jerk
+bounds, no automatic deceleration planner, no guarantee of physical stop timing.
+Existing local PMAC protection remains. Hardware verification is outstanding.
+
+## 2026-10-16: stop-priority checkpoint and feasible IK trials
+
+Checkpoint `75da7ea` isolates the opt-in stop-priority policy. The next change
+enables `execution.rotary_feasible_ik` only in the existing stop-priority trial
+config. No controller parameters or axis/frame mappings change.
+
+The latest stop (`rotary_stop_1792154015491354000.json`, rejected sequence 2521)
+is reproducible from the preceding committed target and the recorded applied
+command. A small input update changes which DLS line-search step improves the
+task, producing an axis-4 step of 2.873 degrees and a cubic peak of 3.343 rad/s.
+This is a candidate-generation discontinuity; it does not establish motor lag
+as the cause. The earlier `rotary_stop_1792141560417376300.json` is also exactly
+reproduced by regression fixtures, including its 2.536 rad/s peak.
+
+Each task-improving IK trial now optionally passes through the existing tendon
+model, ContinuumAxisMapper and wire-quantized cubic rotary guard. All inner
+iterations use the same last committed position and endpoint velocity. A failed
+trial permits four additional step halvings; when feasibility never rejects a
+trial, the original search budget and behavior are retained. Gradient fallback
+uses the same validator. The eight-iteration budget stays unchanged. The final
+submission guard independently checks the resulting segment at the unchanged
+2.5 rad/s anomaly threshold. If no feasible improvement is found, IK retains its
+current state; this is not a guarantee of progress toward every requested pose.
+
+Offline evidence, stored under `outputs/stop_latency_audit/`:
+
+- `feasible_events.json`: earlier event peak 2.536 -> 1.728 rad/s, latest event
+  3.343 -> 1.994 rad/s. Both reduce weighted task residual. Latest maximum rotary
+  step is 1.714 degrees. These are predicted segments, not measured motor motion.
+- `feasible_summary.json` and `replay_feasible_ik.py`: latest log reproduces all
+  2521 accepted target frames exactly with both the original and guarded solver.
+  Input hold still starts at sequence 2098. The rejected final event is absent
+  from the CSV and is tested separately using its JSON fixture.
+- Stop-priority plus guarded IK replays all 4403/3522 accepted input frames in
+  older 01/03 logs without a guard trip. These are changed target trajectories,
+  not predictions of encoder feedback or exact replays of the old policy.
+- Latest active-frame pure-compute P99 is 7.18 ms, maximum 8.51 ms in this run;
+  unguarded replay P99 is 6.55 ms. No hardware communication, scheduler or CSV
+  write time is included, so these numbers are not a real-time guarantee.
+
+Scope: this prevents the two reproduced candidate jumps without loosening the
+guard. It does not solve unreachable targets, large existing pose residuals
+(latest replay active position-error P95 remains 29.46 mm), rotary acceleration
+or jerk limits, or fifth-axis coupling. Stop-priority still discards excess
+master displacement. No hardware, SSH, homing, zeroing or PLC operations were
+performed. Real hardware validation of the new IK policy remains outstanding.
+
+Validation: 305 automated tests pass, including exact event reproduction,
+whole-cycle feasibility anchoring, rejected-all-trials behavior, unchanged
+permissive-validator behavior, stop/resume integration and independent final
+guard rejection with fake hardware. `apps/debug_full_chain.py --dx 1 --rx 1`
+also passes in default dry-run (mapping [2,1,3,4,5], signs [+,-,-,-,+]; pulse
+roundtrip position residual 0.0886 mm). That utility checks mapping consistency,
+not the guarded runtime policy or actual hardware accuracy.

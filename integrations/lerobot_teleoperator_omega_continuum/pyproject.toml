@@ -13,6 +13,7 @@ dependencies = [
     "numpy>=2.0.0",
     "pynput>=1.7.0",
     "pyyaml>=6.0.3",
+    "pyzmq>=25",
 ]
 
 [tool.setuptools.packages.find]
